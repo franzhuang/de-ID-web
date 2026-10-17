@@ -189,8 +189,4 @@ document.addEventListener('DOMContentLoaded', () => {
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;');
   }
-
-  // 初始預設載入醫療範例
-  rawInput.value = SAMPLE_MEDICAL;
-  handleProcess();
 });
