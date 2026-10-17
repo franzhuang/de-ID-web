@@ -94,10 +94,27 @@ document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('.sample-chip').forEach(chip => {
     chip.addEventListener('click', () => {
       const type = chip.getAttribute('data-sample');
-      if (type === 'medical') rawInput.value = SAMPLE_MEDICAL;
-      else if (type === 'financial') rawInput.value = SAMPLE_FINANCIAL;
-      else if (type === 'criminal') rawInput.value = SAMPLE_CRIMINAL;
-      handleProcess();
+      if (type === 'medical') {
+        rawInput.value = SAMPLE_MEDICAL;
+        handleProcess();
+      } else if (type === 'financial') {
+        rawInput.value = SAMPLE_FINANCIAL;
+        handleProcess();
+      } else if (type === 'criminal') {
+        rawInput.value = SAMPLE_CRIMINAL;
+        handleProcess();
+      } else if (type === 'ko') {
+        showToast('正在載入 28 萬字柯案判決書...');
+        fetch('柯案.md')
+          .then(res => res.text())
+          .then(data => {
+            rawInput.value = data;
+            handleProcess();
+          })
+          .catch(err => {
+            showToast('載入失敗，請確認柯案.md檔案存在');
+          });
+      }
     });
   });
 
