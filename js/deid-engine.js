@@ -1,52 +1,44 @@
 /**
- * 臺灣法律文書 / 病歷 / 財務個資 瀏覽器端離線去識別化引擎 (Pure JavaScript)
- * 100% 在用戶端瀏覽器記憶體中運算，絕無任何網路請求或伺服器外洩風險。
+ * Taiwan Legal & Medical De-identification Engine (Pure JavaScript Client-Side)
+ * 專為臺灣法院、訴訟書狀、醫療病歷與金融交易設計之純前端去識別化引擎
  */
 
-// 臺灣身分證英文字母數值對照表
-const TW_ID_LETTER_MAP = {
+// 臺灣身分證驗證演算法 (Rule 01)
+const ID_LETTER_MAP = {
   'A': 10, 'B': 11, 'C': 12, 'D': 13, 'E': 14, 'F': 15, 'G': 16, 'H': 17,
   'I': 34, 'J': 18, 'K': 19, 'L': 20, 'M': 21, 'N': 22, 'O': 35, 'P': 23,
   'Q': 24, 'R': 25, 'S': 26, 'T': 27, 'U': 28, 'V': 29, 'W': 32, 'X': 30,
   'Y': 31, 'Z': 33
 };
 
-function isValidTwId(idStr) {
-  idStr = idStr.toUpperCase();
-  if (!/^[A-Z][1289]\d{8}$/.test(idStr)) return false;
-  const n = TW_ID_LETTER_MAP[idStr[0]];
-  const n1 = Math.floor(n / 10);
-  const n2 = n % 10;
-  const weights = [1, 9, 8, 7, 6, 5, 4, 3, 2, 1];
-  const digits = [n1, n2, parseInt(idStr[1]), parseInt(idStr[2]), parseInt(idStr[3]),
-                  parseInt(idStr[4]), parseInt(idStr[5]), parseInt(idStr[6]), parseInt(idStr[7]), parseInt(idStr[8])];
-  const total = digits.reduce((sum, d, i) => sum + d * weights[i], 0);
-  const checkDigit = (10 - (total % 10)) % 10;
-  return checkDigit === parseInt(idStr[9]);
-}
+function isValidTaiwanID(idStr) {
+  if (!idStr || idStr.length !== 10) return false;
+  const upper = idStr.toUpperCase();
+  const firstCode = ID_LETTER_MAP[upper[0]];
+  if (!firstCode) return false;
+  if (upper[1] !== '1' && upper[1] !== '2') return false;
 
-function isValidLuhn(ccStr) {
-  const digits = ccStr.replace(/\D/g, '').split('').map(Number);
-  if (digits.length < 15 || digits.length > 16) return false;
+  const n1 = Math.floor(firstCode / 10);
+  const n2 = firstCode % 10;
+  const weights = [1, 9, 8, 7, 6, 5, 4, 3, 2, 1, 1];
+  const digits = [n1, n2, ...upper.slice(1).split('').map(Number)];
+
   let sum = 0;
-  const reversed = digits.reverse();
-  for (let i = 0; i < reversed.length; i++) {
-    let d = reversed[i];
-    if (i % 2 === 1) {
-      d *= 2;
-      if (d > 9) d -= 9;
-    }
-    sum += d;
+  for (let i = 0; i < 10; i++) {
+    sum += digits[i] * weights[i];
   }
-  return sum % 10 === 0;
+  const checkDigit = (10 - (sum % 10)) % 10;
+  return checkDigit === digits[10];
 }
 
-function isValidTaxId(taxId) {
-  if (!/^\d{8}$/.test(taxId)) return false;
+// 臺灣營利事業統一編號驗證演算法 (Rule 03)
+function isValidTaxID(taxIdStr) {
+  if (!taxIdStr || taxIdStr.length !== 8 || !/^\d{8}$/.test(taxIdStr)) return false;
   const weights = [1, 2, 1, 2, 1, 2, 4, 1];
-  const digits = taxId.split('').map(Number);
+  const digits = taxIdStr.split('').map(Number);
   const products = digits.map((d, i) => d * weights[i]);
   const sum = products.reduce((acc, p) => acc + Math.floor(p / 10) + (p % 10), 0);
+
   if (sum % 10 === 0) return true;
   if (digits[6] === 7) {
     const altSum = sum - (Math.floor(products[6] / 10) + (products[6] % 10)) + 1;
@@ -55,7 +47,7 @@ function isValidTaxId(taxId) {
   return false;
 }
 
-// 臺灣常見姓氏 (含複姓)
+// 臺灣常見姓氏 (含複姓與百家姓、罕見單姓)
 const COMMON_SURNAMES = new Set([
   "陳", "林", "黃", "張", "李", "王", "吳", "劉", "蔡", "楊",
   "許", "鄭", "謝", "郭", "洪", "曾", "邱", "廖", "賴", "周",
@@ -63,22 +55,33 @@ const COMMON_SURNAMES = new Set([
   "潘", "簡", "朱", "鍾", "彭", "游", "詹", "胡", "施", "沈",
   "余", "盧", "梁", "顏", "柯", "孫", "魏", "翁", "戴", "范",
   "方", "鄧", "杜", "傅", "侯", "鄒", "覃", "石", "古", "姚",
-  "歐陽", "司徒", "諸葛", "上官", "端木", "皇甫", "令狐", "澹臺", "鐘離", "公孫", "辜", "巫", "邱"
+  "田", "馮", "陸", "湯", "童", "白", "毛", "熊", "辜", "巫", "邱",
+  "歐陽", "司徒", "諸葛", "上官", "端木", "皇甫", "令狐", "澹臺", "鐘離", "公孫", "夏侯", "軒轅"
 ]);
 
-const COMPOUND_SURNAMES = ["歐陽", "司徒", "諸葛", "上官", "端木", "皇甫", "令狐", "澹臺", "鐘離", "公孫"];
+const COMPOUND_SURNAMES = [
+  "歐陽", "司徒", "諸葛", "上官", "端木", "皇甫", "令狐", "澹臺", "鐘離", "公孫", "夏侯", "軒轅"
+];
 
-// 訴訟角色
+// 訴訟角色（依長度降序匹配）
 const LEGAL_ROLES = [
-  "原告", "被告", "上訴人", "被上訴人", "聲請人", "相對人",
-  "告訴人", "被害人", "受刑人", "受處分人", "受告知人",
-  "訴訟代理人", "選任辯護人", "辯護人", "複代理人", "送達代收人",
-  "法定代理人", "指定辯護人", "特別代理人",
+  "原告配偶", "被告配偶", "告訴人配偶", "被害人配偶", "當事人配偶", "配偶兼承受訴訟人", "承受訴訟人",
+  "訴訟代理人", "告訴代理人", "選任辯護人", "指定辯護人", "特別代理人", "法定代理人", "送達代收人", "複代理人",
+  "原告", "被告", "上訴人", "被上訴人", "聲請人", "相對人", "抗告人", "異議人",
+  "告訴人", "被害人", "受刑人", "受處分人", "受告知人", "辯護人",
   "法官", "審判長", "受命法官", "陪席法官", "檢察官", "書記官", "公證人", "調解委員",
   "證人", "鑑定人", "輔佐人",
   "債權人", "債務人", "連帶保證人", "保證人", "被繼承人", "繼承人", "受僱人",
-  "具狀人", "撰狀人", "聲請人", "抗告人", "異議人",
-  "主治醫師", "主治大夫", "醫師", "院長", "護理師", "護士", "放射師", "心理師"
+  "具狀人", "撰狀人", "負責人", "代表人", "代理人", "董事長", "總經理", "見證人", "關係人",
+  "主治醫師", "主治大夫", "醫師", "院長", "護理師", "護士", "放射師", "心理師", "會計師", "建築師", "地政士", "代書",
+  "配偶", "家屬", "父親", "母親"
+];
+
+// 職稱後綴
+const TITLES = [
+  "會計師", "建築師", "公證人", "書記官", "地政士", "檢察官", "審判長", "主治醫師", "主治大夫",
+  "律師", "醫師", "法官", "教授", "院長", "主任", "大夫", "代書",
+  "先生", "女士", "小姐", "君", "氏"
 ];
 
 // 排除詞
@@ -96,7 +99,21 @@ const LEGAL_EXCLUDE_WORDS = new Set([
   "車輛", "事故", "車禍", "撞擊", "受傷", "死亡", "骨折", "挫傷", "擦傷", "撕裂傷"
 ]);
 
-const VERB_SUFFIXES = new Set(["診", "斷", "認", "稱", "問", "告", "辯", "答", "訴", "判", "諭", "指", "主", "張", "請", "求", "辦", "開", "立"]);
+const VERB_SUFFIXES = new Set([
+  "診", "斷", "認", "稱", "問", "告", "辯", "答", "訴", "判", "諭", "指",
+  "主", "張", "請", "求", "辦", "開", "立", "涉", "犯", "遭", "被", "提",
+  "到", "自", "向", "與", "及", "同", "往", "隨",
+  "駕", "駛", "乘", "坐", "騎", "轉", "匯", "存", "領", "簽", "署", "具",
+  "送", "受", "取", "得", "付", "給", "買", "賣", "侵", "占", "背", "信",
+  "偽", "造", "毀", "損", "害", "傷", "殺", "打", "毆", "偷", "竊", "搶",
+  "奪", "索", "逃", "避", "匿"
+]);
+
+const CONNECTING_PARTICLES = new Set([
+  "亦", "乃", "即", "均", "並", "且", "或", "復", "更", "再", "應", "得",
+  "隨", "已", "曾", "未", "常", "定", "共", "互", "各", "自", "由", "向",
+  "在", "於", "至", "與", "及", "同", "經"
+]);
 
 const TAIWAN_CITIES = [
   "臺北市", "台北市", "新北市", "桃園市", "臺中市", "台中市", "臺南市", "台南市", "高雄市",
@@ -121,6 +138,7 @@ const ENTITY_PRIORITY = {
   "信用卡號": 90,
   "金融帳號": 85,
   "統一編號": 80,
+  "病歷號": 85,
   "手機": 75,
   "電話": 70,
   "電子郵件": 70,
@@ -128,13 +146,76 @@ const ENTITY_PRIORITY = {
   "車牌號": 65,
   "地號建號": 60,
   "地址": 55,
-  "病歷號": 50,
   "醫療機構": 45,
   "法院遮蔽代號": 40,
   "出生年月日": 35,
   "訴訟關係人": 30,
   "自然人": 20
 };
+
+function extractNameFromCandidate(candidateText) {
+  if (!candidateText) return null;
+
+  let surname = null;
+  for (const cs of COMPOUND_SURNAMES) {
+    if (candidateText.startsWith(cs)) {
+      surname = cs;
+      break;
+    }
+  }
+  if (!surname && candidateText.length > 0 && COMMON_SURNAMES.has(candidateText[0])) {
+    surname = candidateText[0];
+  }
+  if (!surname) return null;
+
+  const sLen = surname.length;
+  const possibleLens = [sLen + 1, sLen + 2];
+
+  for (const l of possibleLens) {
+    if (candidateText.length < l) continue;
+    const nameCand = candidateText.substring(0, l);
+    const afterCand = candidateText.substring(l);
+
+    if (LEGAL_EXCLUDE_WORDS.has(nameCand)) continue;
+
+    // 若後方接職稱（例如：令狐衡律師、公孫策會計師）
+    if (TITLES.some(t => afterCand.startsWith(t))) {
+      return nameCand;
+    }
+
+    // 若末字為動詞或連接助詞
+    if (VERB_SUFFIXES.has(nameCand[nameCand.length - 1]) || CONNECTING_PARTICLES.has(nameCand[nameCand.length - 1])) {
+      continue;
+    }
+
+    // 若後方接動詞、連接詞、標點或空白
+    if (!afterCand || VERB_SUFFIXES.has(afterCand[0]) || CONNECTING_PARTICLES.has(afterCand[0]) || '（(，,、。：:\n\r '.includes(afterCand[0])) {
+      return nameCand;
+    }
+  }
+
+  if (sLen === 2) {
+    if (candidateText.length >= 4 && !VERB_SUFFIXES.has(candidateText[3]) && !CONNECTING_PARTICLES.has(candidateText[3]) && !TITLES.some(t => candidateText.substring(2).startsWith(t))) {
+      const cand = candidateText.substring(0, 4);
+      if (!LEGAL_EXCLUDE_WORDS.has(cand)) return cand;
+    }
+    if (candidateText.length >= 3 && !VERB_SUFFIXES.has(candidateText[2]) && !CONNECTING_PARTICLES.has(candidateText[2])) {
+      const cand = candidateText.substring(0, 3);
+      if (!LEGAL_EXCLUDE_WORDS.has(cand)) return cand;
+    }
+  } else {
+    if (candidateText.length >= 3 && !VERB_SUFFIXES.has(candidateText[2]) && !CONNECTING_PARTICLES.has(candidateText[2]) && !TITLES.some(t => candidateText.substring(1).startsWith(t))) {
+      const cand = candidateText.substring(0, 3);
+      if (!LEGAL_EXCLUDE_WORDS.has(cand)) return cand;
+    }
+    if (candidateText.length >= 2 && !VERB_SUFFIXES.has(candidateText[1]) && !CONNECTING_PARTICLES.has(candidateText[1])) {
+      const cand = candidateText.substring(0, 2);
+      if (!LEGAL_EXCLUDE_WORDS.has(cand)) return cand;
+    }
+  }
+
+  return null;
+}
 
 class DeidEngine {
   constructor(options = {}) {
@@ -144,44 +225,39 @@ class DeidEngine {
 
   detectEntities(text) {
     const spans = [];
+    const knownPersons = {}; // name -> role
 
-    // 1. 身分證號、居留證號
-    const twIdRegex = /(?<![A-Za-z0-9])([A-Za-z][1289]\d{8})(?![A-Za-z0-9])/g;
+    // 1. 身分證號 (Rule 01)
+    const idRegex = /(?<![A-Za-z0-9])([A-Z][1289]\d{8})(?![A-Za-z0-9])/g;
     let m;
-    while ((m = twIdRegex.exec(text)) !== null) {
+    while ((m = idRegex.exec(text)) !== null) {
+      const rawId = m[1];
+      const valid = isValidTaiwanID(rawId);
       spans.push({
         start: m.index,
-        end: m.index + m[1].length,
-        text: m[1],
+        end: m.index + rawId.length,
+        text: rawId,
         type: "身分證號",
-        valid: isValidTwId(m[1])
+        valid: valid
       });
     }
 
-    const arcOldRegex = /(?<![A-Za-z0-9])([A-Za-z][A-Da-d]\d{8})(?![A-Za-z0-9])/g;
-    while ((m = arcOldRegex.exec(text)) !== null) {
-      spans.push({
-        start: m.index,
-        end: m.index + m[1].length,
-        text: m[1],
-        type: "居留證號"
-      });
+    // 外來人口居留證號 (Rule 02)
+    const permitRegex = /(?<![A-Za-z0-9])([A-Z][A-D89]\d{8})(?![A-Za-z0-9])/g;
+    while ((m = permitRegex.exec(text)) !== null) {
+      const rawStr = m[1];
+      if (!isValidTaiwanID(rawStr)) {
+        spans.push({
+          start: m.index,
+          end: m.index + rawStr.length,
+          text: rawStr,
+          type: "居留證號"
+        });
+      }
     }
 
-    // 健保卡號
-    const healthCardRegex = /(?:健保(?:卡)?(?:卡號|號碼)?|IC卡號)[：:\s]*(?<!\d)(\d{12})(?!\d)/g;
-    while ((m = healthCardRegex.exec(text)) !== null) {
-      const offset = m[0].indexOf(m[1]);
-      spans.push({
-        start: m.index + offset,
-        end: m.index + offset + m[1].length,
-        text: m[1],
-        type: "健保卡號"
-      });
-    }
-
-    // 護照號
-    const passportRegex = /(?:護照(?:號碼|字號)?|Passport\s*(?:No\.?)?)[：:\s]*(?<![A-Za-z0-9])([A-Za-z0-9]{8,10})(?![A-Za-z0-9])/gi;
+    // 護照號碼
+    const passportRegex = /(?:護照(?:號碼|號)?)[：:\s]*\b([A-Z0-9]{8,10})\b/gi;
     while ((m = passportRegex.exec(text)) !== null) {
       const offset = m[0].indexOf(m[1]);
       spans.push({
@@ -192,36 +268,17 @@ class DeidEngine {
       });
     }
 
-    // 2. 信用卡號 (涵蓋 Visa, Master, JCB, AE)
-    const ccRegex = /(?:信用卡(?:卡號)?|卡號)?[：:\s]*(?<!\d)((?:4[0-9]{3}|5[1-5][0-9]{2}|2[2-7][0-9]{2}|3[457][0-9]{2})[- ]?[0-9]{4}[- ]?[0-9]{4}[- ]?[0-9]{3,4})(?!\d)/g;
-    while ((m = ccRegex.exec(text)) !== null) {
+    // 2. 金融與財稅
+    const creditCardRegex = /(?<!\d)(\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4})(?!\d)/g;
+    while ((m = creditCardRegex.exec(text)) !== null) {
       const rawStr = m[1];
-      const prefixText = text.substring(Math.max(0, m.index - 10), m.index + m[0].indexOf(rawStr));
-      const hasPrefix = /信用卡|卡號/.test(prefixText);
-      if (hasPrefix || isValidLuhn(rawStr)) {
-        const offset = m[0].indexOf(rawStr);
+      const digitsOnly = rawStr.replace(/\D/g, '');
+      if (digitsOnly.length === 16) {
         spans.push({
-          start: m.index + offset,
-          end: m.index + offset + rawStr.length,
+          start: m.index,
+          end: m.index + rawStr.length,
           text: rawStr,
           type: "信用卡號"
-        });
-      }
-    }
-
-    // 統一編號 (8碼)
-    const taxRegex = /(?:統一編號|統編|公司統編)?[：:\s]*(?<!\d)(\d{8})(?!\d)/g;
-    while ((m = taxRegex.exec(text)) !== null) {
-      const numStr = m[1];
-      const prefixText = text.substring(Math.max(0, m.index - 10), m.index + m[0].indexOf(numStr));
-      const hasPrefix = /統一編號|統編/.test(prefixText);
-      if (hasPrefix || isValidTaxId(numStr)) {
-        const offset = m[0].indexOf(numStr);
-        spans.push({
-          start: m.index + offset,
-          end: m.index + offset + numStr.length,
-          text: numStr,
-          type: "統一編號"
         });
       }
     }
@@ -242,8 +299,23 @@ class DeidEngine {
       }
     }
 
-    // 3. 通訊
-    const mobileRegex = /(?:\+886-?|0)9\d{2}[-\s]?\d{3}[-\s]?\d{3}\b/g;
+    // 營利事業統一編號 (Rule 03)
+    const taxRegex = /(?:統一編號|統編)[：:\s]*\b(\d{8})\b|(?<![A-Za-z0-9-])(\d{8})(?![A-Za-z0-9-])/g;
+    while ((m = taxRegex.exec(text)) !== null) {
+      const rawStr = m[1] || m[2];
+      if (isValidTaxID(rawStr)) {
+        const offset = m[0].indexOf(rawStr);
+        spans.push({
+          start: m.index + offset,
+          end: m.index + offset + rawStr.length,
+          text: rawStr,
+          type: "統一編號"
+        });
+      }
+    }
+
+    // 3. 通訊與聯絡
+    const mobileRegex = /(?<!\d)(09\d{2}[-\s]?\d{3}[-\s]?\d{3})(?!\d)/g;
     while ((m = mobileRegex.exec(text)) !== null) {
       spans.push({
         start: m.index,
@@ -263,7 +335,7 @@ class DeidEngine {
       });
     }
 
-    // 4. 地址與地政
+    // 4. 地址與地政 (住址、地號建號、車牌號碼)
     const cityPattern = TAIWAN_CITIES.join('|');
     const addrRegex = new RegExp(`(${cityPattern})?([\\u4e00-\\u9fa5]{1,4}(?:區|鄉|鎮|市))?([\\u4e00-\\u9fa50-9０-９一二三四五六七八九十]{1,10}(?:村|里))?([\\u4e00-\\u9fa50-9０-９一二三四五六七八九十]{1,15}(?:路|街|大道|段))([0-9０-９一二三四五六七八九十]{1,5}巷)?([0-9０-９一二三四五六七八九十]{1,5}弄)?([0-9０-９]{1,5}號)(?:之[0-9０-９]{1,3})?(?:[0-9０-９]{1,3}樓(?:之[0-9０-９]{1,3})?)?(?:[0-9０-９]{1,3}室)?`, 'g');
     while ((m = addrRegex.exec(text)) !== null) {
@@ -284,6 +356,59 @@ class DeidEngine {
             type: "地址"
           });
         }
+      }
+    }
+
+    // 地政不動產：地號、建號（自動剝離前置介系詞）
+    const landRegex = new RegExp(`(?:(?:存放|坐落|座落|位於|設於|處)?(?:於|在|至|自))?(${cityPattern})?([\\u4e00-\\u9fa5]{1,4}(?:區|鄉|鎮))?([\\u4e00-\\u9fa5]{1,6}段(?:[一二三四五六七八九十0-9]{1,2}小段)?)([0-9０-９-]+(?:地號|建號))`, 'g');
+    while ((m = landRegex.exec(text)) !== null) {
+      const city = m[1];
+      const dist = m[2] || '';
+      const sec = m[3];
+      const no = m[4];
+      const landCore = (city || '') + dist + sec + no;
+      const offset = m[0].indexOf(landCore);
+      let start = m.index + offset;
+      let end = start + landCore.length;
+      if (this.keepCityPrefix && city) {
+        start += city.length;
+      }
+      const sliceText = text.substring(start, end).trim();
+      if (sliceText.length > 0) {
+        spans.push({
+          start: start,
+          end: end,
+          text: sliceText,
+          type: "地號建號"
+        });
+      }
+    }
+
+    // 汽機車車牌號碼 (包含上下文前綴模式與獨立車牌正則)
+    const contextPlateRegex = /(?:車牌(?:號碼)?|車號|牌照(?:號碼)?|車輛(?:號碼)?)[：:\s]*\b([A-Z0-9]{2,4}[-－][A-Z0-9]{2,4})\b/g;
+    while ((m = contextPlateRegex.exec(text)) !== null) {
+      const plateStr = m[1];
+      if (/\d/.test(plateStr) && /[A-Za-z]/.test(plateStr)) {
+        const offset = m[0].indexOf(plateStr);
+        spans.push({
+          start: m.index + offset,
+          end: m.index + offset + plateStr.length,
+          text: plateStr,
+          type: "車牌號"
+        });
+      }
+    }
+
+    const plateRegex = /\b(?:[A-Z0-9]{2,4}[-－][A-Z0-9]{2,4}|[A-Z]{3}[-－][0-9]{4}|[0-9]{4}[-－][A-Z]{2}|[A-Z]{2}[-－][0-9]{4})\b/g;
+    while ((m = plateRegex.exec(text)) !== null) {
+      const plateStr = m[0];
+      if (/\d/.test(plateStr) && /[A-Za-z]/.test(plateStr)) {
+        spans.push({
+          start: m.index,
+          end: m.index + plateStr.length,
+          text: plateStr,
+          type: "車牌號"
+        });
       }
     }
 
@@ -363,35 +488,79 @@ class DeidEngine {
       }
     }
 
-    // 7. 自然人與法律訴訟關係人
-    const rolesPattern = LEGAL_ROLES.join('|');
-    const rolePersonRegex = new RegExp(`(${rolesPattern})[：:\\s]*([\\u4e00-\\u9fa5]{2,4})`, 'g');
+    // 7. 自然人與法律訴訟關係人 (精確前綴萃取 + 職稱動詞剝離)
+    const rolesPattern = [...LEGAL_ROLES].sort((a, b) => b.length - a.length).join('|');
+    const rolePersonRegex = new RegExp(`(${rolesPattern})[：:\\s]*([\\u4e00-\\u9fa5]{2,6})`, 'g');
     while ((m = rolePersonRegex.exec(text)) !== null) {
       const roleName = m[1];
-      let rawName = m[2];
-      if (LEGAL_EXCLUDE_WORDS.has(rawName)) continue;
+      const rawSlice = m[2];
+      const validName = extractNameFromCandidate(rawSlice);
 
-      let candidate = rawName;
-      if (candidate.length === 4) {
-        const isCompound = COMPOUND_SURNAMES.includes(candidate.substring(0, 2));
-        if (!isCompound) candidate = candidate.substring(0, 3);
-      }
-      if (candidate.length >= 3 && VERB_SUFFIXES.has(candidate[candidate.length - 1])) {
-        if (COMMON_SURNAMES.has(candidate[0])) candidate = candidate.substring(0, candidate.length - 1);
-      }
-
-      const isValidName = (COMMON_SURNAMES.has(candidate[0]) && candidate.length >= 2 && candidate.length <= 3) ||
-                          (COMPOUND_SURNAMES.includes(candidate.substring(0, 2)) && candidate.length <= 4);
-
-      if (isValidName && !LEGAL_EXCLUDE_WORDS.has(candidate)) {
-        const nameStart = m.index + m[0].indexOf(candidate);
+      if (validName && !LEGAL_EXCLUDE_WORDS.has(validName)) {
+        const nameStart = m.index + m[0].indexOf(validName);
         spans.push({
           start: nameStart,
-          end: nameStart + candidate.length,
-          text: candidate,
+          end: nameStart + validName.length,
+          text: validName,
           type: "訴訟關係人",
           role: roleName
         });
+        if (!knownPersons[validName]) {
+          knownPersons[validName] = roleName;
+        }
+      }
+    }
+
+    // 獨立複姓人名掃描（如未帶角色標籤的 歐陽若蘭、諸葛景雲、司徒長風）
+    const compoundPattern = new RegExp(`(${COMPOUND_SURNAMES.join('|')})([\\u4e00-\\u9fa5]{1,4})`, 'g');
+    while ((m = compoundPattern.exec(text)) !== null) {
+      const fullSlice = m[0];
+      const validName = extractNameFromCandidate(fullSlice);
+      if (validName && !LEGAL_EXCLUDE_WORDS.has(validName)) {
+        spans.push({
+          start: m.index,
+          end: m.index + validName.length,
+          text: validName,
+          type: "自然人"
+        });
+        if (!knownPersons[validName]) {
+          knownPersons[validName] = null;
+        }
+      }
+    }
+
+    // 姓氏 + 職稱掃描（例如：黃國昌律師、辜允中律師、張醫師）
+    const surnameArr = Array.from(COMMON_SURNAMES);
+    const titlePattern = new RegExp(`(${surnameArr.join('|')})([\\u4e00-\\u9fa5]{1,2})(${TITLES.join('|')})`, 'g');
+    while ((m = titlePattern.exec(text)) !== null) {
+      const nameCandidate = m[1] + m[2];
+      if (!LEGAL_EXCLUDE_WORDS.has(nameCandidate)) {
+        spans.push({
+          start: m.index,
+          end: m.index + nameCandidate.length,
+          text: nameCandidate,
+          type: "自然人"
+        });
+        if (!knownPersons[nameCandidate]) {
+          knownPersons[nameCandidate] = null;
+        }
+      }
+    }
+
+    // 全局人名傳播：在本文中確認為人名者，全文所有相同字串一併納入
+    for (const [name, role] of Object.entries(knownPersons)) {
+      if (name.length < 2) continue;
+      let idx = 0;
+      while ((idx = text.indexOf(name, idx)) !== -1) {
+        const endIdx = idx + name.length;
+        spans.push({
+          start: idx,
+          end: endIdx,
+          text: name,
+          type: role ? "訴訟關係人" : "自然人",
+          role: role || undefined
+        });
+        idx = endIdx;
       }
     }
 
@@ -509,4 +678,8 @@ class MappingStore {
 if (typeof window !== 'undefined') {
   window.DeidEngine = DeidEngine;
   window.MappingStore = MappingStore;
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { DeidEngine, MappingStore };
 }
