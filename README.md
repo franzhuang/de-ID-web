@@ -37,7 +37,10 @@
 
 ## 🚀 GitHub Pages 啟用方式
 
-本專案已內建 GitHub Actions 自動部署工作流：
-1. 進入 GitHub 儲存庫的 **Settings** -> **Pages**。
-2. 在 **Build and deployment** 下方的 **Source** 選擇 **GitHub Actions**。
-3. 推送至 `main` 分支後，GitHub 將自動部署上線，即可透過 `https://<你的帳號>.github.io/de-ID-web/` 直接使用！
+本專案採用最標準的純靜態根目錄託管，免任何複雜工作流：
+1. 推送完成後，在 GitHub 進入該儲存庫的 **Settings** -> **Pages**。
+2. 在 **Build and deployment** 下方的 **Source** 選擇 **Deploy from a branch**。
+3. 在 **Branch** 選擇 **`main`** 分支，目錄保持 **`/(root)`**，點擊 **Save**。
+4. 稍等約 30 秒至 1 分鐘，GitHub Pages 即可完成發布，透過：
+   👉 **`https://franzhuang.github.io/de-ID-web/`**
+   直接在任何電腦、筆電或手機瀏覽器公開使用！
