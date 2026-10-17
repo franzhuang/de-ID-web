@@ -1,0 +1,8 @@
+# Ignore personal documents and testing files
+*.docx
+*.pdf
+*.log
+*.mapping.json
+.DS_Store
+Thumbs.db
+node_modules/

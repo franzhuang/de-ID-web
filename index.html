@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>臺灣法律文書 / 病歷 / 財務個資 離線去識別化系統</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <div class="container">
+    <!-- Header -->
+    <header>
+      <div class="header-top">
+        <div class="title-group">
+          <h1>⚖️ 臺灣法庭／病歷／金融資料 離線去識別化系統</h1>
+        </div>
+        <div class="security-badge">
+          🛡️ 100% 瀏覽器本地運算（零資料上傳外洩）
+        </div>
+      </div>
+      <p class="description">
+        專為律師、法官及法務人員打造：去識別化後的資料可安全提供一般 LLM（ChatGPT / Claude / Gemini）進行法律分析與摘要，並支援一鍵本機反向還原真實當事人。
+      </p>
+    </header>
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <button class="tab-btn active" id="tabMask">🔒 去識別化 (De-ID)</button>
+      <button class="tab-btn" id="tabRestore">🔑 反向還原 (Re-ID)</button>
+    </div>
+
+    <!-- 去識別化主區塊 -->
+    <main id="maskSection">
+      <!-- 快速範例 -->
+      <div class="quick-samples">
+        <span>載入真實範例：</span>
+        <button class="sample-chip" data-sample="medical">🏥 醫療過失糾紛書狀</button>
+        <button class="sample-chip" data-sample="financial">💳 借貸金流與信用卡爭議</button>
+        <button class="sample-chip" data-sample="court">🏛️ 法院裁判書「甲○○」符號</button>
+      </div>
+
+      <!-- 工作區雙欄 -->
+      <div class="workspace-grid">
+        <!-- 左欄：原始文書 -->
+        <div class="panel">
+          <div class="panel-header">
+            <span class="panel-title">📄 原始文書段落（含個資）</span>
+            <div class="panel-actions">
+              <label style="font-size: 0.85rem; display: flex; align-items: center; gap: 4px; cursor: pointer;">
+                <input type="checkbox" id="optKeepCity" checked> 保留縣市管轄
+              </label>
+            </div>
+          </div>
+          <textarea id="rawInput" class="editor" placeholder="請在此貼上民事起訴狀、答辯狀、判決書、病歷摘要或金流明細..."></textarea>
+        </div>
+
+        <!-- 右欄：去識別化結果 -->
+        <div class="panel">
+          <div class="panel-header">
+            <span class="panel-title">✨ 去識別化後 (可安全傳給外部 LLM)</span>
+            <div class="panel-actions">
+              <button class="btn btn-secondary btn-sm" id="btnCopyMasked">📋 複製</button>
+              <button class="btn btn-secondary btn-sm" id="btnDownloadMasked">💾 下載 .txt</button>
+            </div>
+          </div>
+          <textarea id="maskedOutput" class="editor" readonly placeholder="去識別化後的文字將即時呈現於此..."></textarea>
+        </div>
+      </div>
+
+      <!-- 控制按鈕列 -->
+      <div class="controls-bar">
+        <button class="btn btn-primary" id="btnProcess">⚡ 立即執行去識別化</button>
+        <button class="btn btn-secondary" id="btnDownloadMapping">📥 下載本地機密對照字典 (.mapping.json)</button>
+      </div>
+
+      <!-- 統計徽章 -->
+      <div class="stats-summary" id="statsContainer"></div>
+
+      <!-- 對照表清單 -->
+      <div class="mapping-section">
+        <h3>
+          <span>📑 本次實體對照清單 <small id="mappingCount" style="color:var(--text-muted); font-size:0.85rem;"></small></span>
+          <span style="font-size:0.8rem; color:var(--danger-text); font-weight:normal;">⚠️ 包含真實對應，留在本機切勿上傳至外部 LLM</span>
+        </h3>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:25%;">代號 (Token)</th>
+                <th style="width:35%;">原始敏感資訊</th>
+                <th style="width:20%;">個資類別</th>
+                <th style="width:20%;">法律/醫療角色</th>
+              </tr>
+            </thead>
+            <tbody id="mappingTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+
+    <!-- 反向還原區塊 -->
+    <section id="restoreSection" style="display:none;">
+      <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:8px; padding:16px; margin-bottom:20px;">
+        <h3 style="margin-bottom:8px; font-size:1.05rem;">🔑 載入對照字典</h3>
+        <p style="color:var(--text-muted); font-size:0.9rem; margin-bottom:12px;">
+          若您在上方「去識別化」分頁剛剛執行過，系統會自動使用當前的對照表。您亦可從電腦上傳先前記存的 <code>.mapping.json</code> 檔案：
+        </p>
+        <input type="file" id="mappingFileInput" accept=".json">
+      </div>
+
+      <div class="workspace-grid">
+        <div class="panel">
+          <div class="panel-header">
+            <span class="panel-title">🤖 外部 LLM 分析回答 (含 [自然人_1] 代號)</span>
+          </div>
+          <textarea id="restoreInput" class="editor" placeholder="請將 ChatGPT / Claude 產出的法律摘要、爭點分析或答辯狀草稿貼入此處..."></textarea>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <span class="panel-title">🎉 本地一鍵還原真實當事人</span>
+            <div class="panel-actions">
+              <button class="btn btn-secondary btn-sm" id="btnCopyRestored">📋 複製還原結果</button>
+            </div>
+          </div>
+          <textarea id="restoreOutput" class="editor" readonly placeholder="還原後的真實姓名與資訊將呈現於此..."></textarea>
+        </div>
+      </div>
+
+      <div class="controls-bar">
+        <button class="btn btn-primary" id="btnRunRestore">🔄 一鍵反向還原 (Re-ID)</button>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer style="margin-top:40px; padding-top:20px; border-top:1px solid var(--border); text-align:center; color:var(--text-muted); font-size:0.85rem;">
+      臺灣法律與醫療去識別化展示系統 (de-ID Web) • 100% 離線純前端運算 • 符合個資法規範
+    </footer>
+  </div>
+
+  <div id="toast"></div>
+
+  <script src="js/deid-engine.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
