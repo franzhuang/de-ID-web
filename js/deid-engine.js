@@ -63,9 +63,10 @@ const COMMON_SURNAMES = new Set([
   "潘", "簡", "朱", "鍾", "彭", "游", "詹", "胡", "施", "沈",
   "余", "盧", "梁", "顏", "柯", "孫", "魏", "翁", "戴", "范",
   "方", "鄧", "杜", "傅", "侯", "鄒", "覃", "石", "古", "姚",
-  "田", "廖", "馮", "陸", "湯", "童", "白", "毛", "鄒", "熊",
-  "歐陽", "司徒", "諸葛", "上官"
+  "歐陽", "司徒", "諸葛", "上官", "端木", "皇甫", "令狐", "澹臺", "鐘離", "公孫", "辜", "巫", "邱"
 ]);
+
+const COMPOUND_SURNAMES = ["歐陽", "司徒", "諸葛", "上官", "端木", "皇甫", "令狐", "澹臺", "鐘離", "公孫"];
 
 // 訴訟角色
 const LEGAL_ROLES = [
@@ -225,12 +226,12 @@ class DeidEngine {
       }
     }
 
-    // 銀行/郵局帳號 (10~16碼)
-    const bankAcctRegex = /(?:帳號|帳戶|金融帳號|存款帳號|郵局帳號|行庫帳號|轉入帳號|匯入帳號|扣款帳號|戶名[\s\S]{0,10}帳號)[：:\s]*(?<!\d)([0-9-]{10,18})(?!\d)/g;
+    // 銀行/郵局帳號 (10~20碼，含行庫代碼或分行號)
+    const bankAcctRegex = /(?:帳號|帳戶|金融帳號|存款帳號|郵局帳號|行庫帳號|轉入帳號|匯入帳號|扣款帳號|戶名[\s\S]{0,10}帳號)[：:\s]*(?<!\d)([0-9-]{10,24})(?!\d)/g;
     while ((m = bankAcctRegex.exec(text)) !== null) {
       const rawStr = m[1];
       const digitsOnly = rawStr.replace(/\D/g, '');
-      if (digitsOnly.length >= 10 && digitsOnly.length <= 16) {
+      if (digitsOnly.length >= 10 && digitsOnly.length <= 20) {
         const offset = m[0].indexOf(rawStr);
         spans.push({
           start: m.index + offset,
@@ -372,7 +373,7 @@ class DeidEngine {
 
       let candidate = rawName;
       if (candidate.length === 4) {
-        const isCompound = ["歐陽", "司徒", "諸葛", "上官"].includes(candidate.substring(0, 2));
+        const isCompound = COMPOUND_SURNAMES.includes(candidate.substring(0, 2));
         if (!isCompound) candidate = candidate.substring(0, 3);
       }
       if (candidate.length >= 3 && VERB_SUFFIXES.has(candidate[candidate.length - 1])) {
@@ -380,7 +381,7 @@ class DeidEngine {
       }
 
       const isValidName = (COMMON_SURNAMES.has(candidate[0]) && candidate.length >= 2 && candidate.length <= 3) ||
-                          (["歐陽", "司徒", "諸葛", "上官"].includes(candidate.substring(0, 2)) && candidate.length <= 4);
+                          (COMPOUND_SURNAMES.includes(candidate.substring(0, 2)) && candidate.length <= 4);
 
       if (isValidName && !LEGAL_EXCLUDE_WORDS.has(candidate)) {
         const nameStart = m.index + m[0].indexOf(candidate);
