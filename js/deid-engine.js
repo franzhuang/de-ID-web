@@ -146,7 +146,8 @@ const GRAMMATICAL_CHARS = new Set([
   "小", "上", "下", "開", "關", "問", "見", "命", "令", "法", "理", "新", "老", "先", "生",
   "應", "從", "於", "支", "明", "易", "喬", "廉", "能", "信", "和", "花", "山", "谷", "車",
   "步", "都", "廣", "金", "宗", "宣", "家", "康", "懷", "施", "時", "扶", "房", "費", "樂",
-  "暴", "甘", "皮", "計", "毛", "狄", "米", "伏", "麻", "路", "農", "溫", "柴", "習"
+  "暴", "甘", "皮", "計", "毛", "狄", "米", "伏", "麻", "路", "農", "溫", "柴", "習",
+  "那", "查", "諸", "終", "蓋", "黨", "權", "衡", "符", "項", "益", "段", "雙", "索", "闕"
 ]);
 
 const STANDALONE_NAME_SURNAMES = Array.from(COMMON_SURNAMES).filter(
@@ -174,7 +175,7 @@ const INVALID_NAME_ENDINGS = new Set([
   ...Array.from(CONNECTING_PARTICLES)
 ]);
 
-const FOLLOW_CHARS = new Set(Array.from("說稱指述問答辯告認道謂云表示提出想知至往於向自與和經遭被因由將隨即曾未亦乃均並且共互各也去來到在返回進入借貸還付給收受買賣取領存匯轉簽署立駕駛乘開騎行走住居生死亡傷殺害打毆偷竊涉犯前往他她其等之，、。；：！？（()[]\n\r "));
+const FOLLOW_CHARS = new Set(Array.from("及暨說稱指述問答辯告認道謂云表示提出想知至往於向自與和經遭被因由將隨即曾未亦乃均並且共互各也去來到在返回進入借貸還付給收受買賣取領存匯轉簽署立駕駛乘開騎行走住居生死亡傷殺害打毆偷竊涉犯前往他她其等之，、。；：！？（()[]\n\r "));
 
 const TAIWAN_CITIES = [
   "臺北市", "台北市", "新北市", "桃園市", "臺中市", "台中市", "臺南市", "台南市", "高雄市",
@@ -214,68 +215,362 @@ const ENTITY_PRIORITY = {
   "自然人": 20
 };
 
-function extractNameFromCandidate(candidateText) {
-  if (!candidateText) return null;
+// ---------------------------------------------------------------------------
+// 法律語義邊界演算法（Hard Immunity / 動態職銜 / 否定語法檢驗 / 頭部錨定）
+// 與 Python 端 src/deid/rules/person_ner.py 同步實作
+// ---------------------------------------------------------------------------
 
-  let surname = null;
-  for (const cs of COMPOUND_SURNAMES) {
-    if (candidateText.startsWith(cs)) {
-      surname = cs;
-      break;
-    }
-  }
-  if (!surname && candidateText.length > 0 && COMMON_SURNAMES.has(candidateText[0])) {
-    surname = candidateText[0];
-  }
+// 以姓氏起頭、實為一般詞彙的字串（詞典衍生），不得視為人名
+const COMMON_WORDS = new Set((
+  "丁卯 于是 井冈山 井口 仇人 仇恨 仰慕 仰望 仲裁 任何 任何人 任免 任免权 任务 任命 任性 任意 任意球 任教 任期 任用 任由 任职 伊利 伊斯兰 " +
+  "伊朗 伊犁 何不 何事 何人 何以 何况 何在 何处 何如 何尝 何必 何故 何方 何时 何用 何种 何等 何者 何苦 余万 余万元 余下 余亩 余地 " +
+  "余处 余家 余年 余种 余米 余脉 余部 余额 元代 元件 元大都 元年 元旦 元朝 元气 元素 元首 充任 充军 充分 充实 充当 充斥 充沛 充满 " +
+  "充电 充裕 充足 全世界 全书 全会 全体 全党 全军 全力 全区 全县 全国 全国性 全场 全城 全境 全天 全天候 全家 全局 全岛 全州 全市 全年 " +
+  "全文 全新 全方位 全景 全权 全村 全校 全歼 全民 全然 全球 全球化 全球性 全球通 全盘 全省 全真 全称 全程 全线 全能 全身 全过程 全邦 全部 " +
+  "全都 全长 全队 全集 全面 公主 公事 公交 公人 公众 公众网 公众股 公使 公元 公元前 公公 公共 公关 公凸 公办 公务 公务员 公司 公司法 公告 " +
+  "公园 公国 公子 公孙 公安 公安局 公安部 公室 公家 公寓 公差 公布 公平 公开 公式 公报 公文 公斤 公有 公有制 公案 公款 公正性 公民 公然 " +
+  "公爵 公牛 公理 公生桥 公用 公益 公益性 公社 公私 公积金 公立 公约 公职 公认 公证 公路 公路桥 公路网 公道 公里 公顷 公馆 公鸡 冀求 冷冷的 " +
+  "冷却 冷战 冷气 冷水 冷淡 冷漠 冷落 冷酷 冷门 冷静 凌晨 利于 利亚 利刃 利器 利害 利川市 利息 利息率 利比亚 利润 利润率 利物浦 利率 利用 " +
+  "利用率 利益 利税 勾当 勾结 包含 包围 包扎 包括 包机 包袱 包装 包裹 包金 卓著 印刷 印尼 印度 印度人 印度教 印度河 印度洋 印欧语 印章 印第安 " +
+  "印记 印证 印象 危亡 危及 危品 危害 危急 危机 危险 危险性 危难 古三国 古人 古人类 古今 古代 古典 古城 古墓 古墓群 古尸 古山 古巴 古希腊 " +
+  "古怪 古时 古月 古朴 古物 古玩 古琴台 古称 古籍 古罗马 古诗 古迹 古都 古镇 史书 史册 史学 史学家 史料 史方 史籍 史记 司令 司令员 司令部 " +
+  "司徒 司机 司法 司法部 司空 司长 吉利 吉林省 吉象 吉象牌 向上 向下 向前 向导 向往 向来 向着 向量 吳顧 吳顧問 周一 周三 周二 周五 周代 " +
+  "周六 周刊 周到 周四 周围 周坤仁 周家 周岁 周年 周恩来 周日 周期 周期性 周末 周身 周边 周长 和丰 和县 和平 和田 和约 和解 和谈 和谐 " +
+  "咸丰 咸丰县 咸宁 咸宁市 咸安区 咸阳 唐代 唐宋 唐朝 單前後 單附件 堵住 堵塞 堵截 夏商周 夏天 夏季 夏日 季度 季梁 季节 季节性 季风 季风性 安七州 " +
+  "安乡 安全 安全局 安内 安南 安宁 安定 安定性 安定门 安庆 安徽 安徽省 安心 安息 安慰 安排 安放 安歇 安理会 安稳 安置 安葬 安装 安阳 安陆 " +
+  "安陆市 安顿 宋代 宋朝 宗人府 宗室 宗教 宗族 宗旨 宗法 宗派 宣传 宣傳 宣告 宣布 宣战 宣扬 宣称 宣统 宣誓 宣讲会 宣读 宦官 宰牲亭 宰相 " +
+  "家丁 家业 家中 家主 家乡 家产 家人 家伙 家具 家务 家园 家境 家家 家属 家庙 家庭 家当 家教 家族 家电 家畜 家禽 家里 家长 家门 " +
+  "家门口 容器 容忍 容易 容水量 容积 容许 容貌 容量 宿主 宿舍 富于 富人 富农 富含 富强 富户 富有 富水 富裕 富贵 富集 富饶 封冻 封口 " +
+  "封存 封建 封闭 封闭式 封面 尚且 尚书 尚可 尚无 尚有 尚未 尤为 尤其 居中 居于 居住 居士 居多 居委会 居民 居然 居留 屈原 屈服 屈辱 " +
+  "屠刀 屠杀 山上 山下 山丘 山东 山东省 山中 山体 山前 山势 山区 山南 山口 山地 山坡 山墙 山头 山寨 山岭 山峰 山川 山庄 山影 山林 " +
+  "山水 山沟 山河 山洞 山海关 山石 山羊 山羊肉 山脉 山脚下 山自西 山西 山西省 山谷 山路 山道 山里 山野 山镇 山门 山间 山顶 山麓 左侧 左右 " +
+  "左岸 左手 左派 左脚 左腿 左臂 左边 巫山 巴不得 巴东 巴东县 巴拉圭 巴拿马 巴比伦 巴西 巴西队 巴黎 師法 席位 席卷 常人 常任 常住 常务 常委 " +
+  "常委会 常州 常常 常年 常数 常有 常用 常绿 常见 常规 常规赛 常言道 常设 常识 常驻 干事 干什么 干净 干吗 干尸 干扰 干旱 干活 干流 干涉 " +
+  "干燥 干粮 干系 干线 干脆 干贝 干部 干重 干面 干预 平儿 平凡 平原 平反 平台 平和 平地 平均 平坦 平壤 平安 平定 平常 平平 平底 " +
+  "平庸 平息 平整 平方 平方米 平日 平时 平板 平民 平津 平淡 平生 平稳 平等 平米 平素 平缓 平行 平衡 平遥 平静 平面 幸亏 幸好 幸福 " +
+  "幸而 幸运 廉价 廉洁 弓箭 彭副 後才發 徐州 徐海 慎重 應於 應申報 成为 成书 成交 成交量 成亲 成人 成像 成分 成功 成功率 成化 成名 成员 " +
+  "成员国 成品 成因 成型 成天 成婚 成就 成年 成年人 成形 成排 成效 成文 成方 成本 成果 成熟 成立 成绩 成群 成色 成虫 成行 成败 成都 " +
+  "成都市 成长 房中 房产 房价 房县 房地产 房基 房子 房屋 房舍 房里 房门 房间 扶持 扶植 扶贫 支书 支付 支出 支持 支援 支撑 支架 支柱 " +
+  "支气管 支流 支票 支线 支行 支部 支配 支队 文中 文书 文人 文件 文体 文凭 文化 文化史 文化局 文化层 文化路 文化部 文华 文史 文坛 文字 文学 " +
+  "文学史 文学家 文官 文峰 文工团 文帝 文库 文教 文昌市 文本 文汇 文物 文献 文盲 文科 文章 文职 文联 文臣 文艺 文选 文集 文革 方丈 方位 " +
+  "方便 方可 方向 方圆 方城 方始 方式 方形 方才 方案 方法 方法论 方略 方程 方解石 方言 方针 方面 方面军 於前揭 於審 於該日 施主 施加 施壓 " +
+  "施展 施工 施用量 施行 明亮 明代 明儿 明史 明器 明天 明年 明教 明日 明明 明显 明晃晃 明月 明朝 明末 明清 明知 明确 易于 易明細 時任 " +
+  "時期 景区 景山 景点 景物 景致 景色 景观 景象 暴力 暴动 暴徒 暴行 暴躁 暴雨 暴露 曾经 曾都区 朱漆 束缚 杭州 杭汉 松山 松开 松弛 " +
+  "松手 松散 松林 松林山 松江 松滋 松滋市 松花 松花江 松软 林业 林中 林兆枢 林区 查出 查处 查找 查核 查核報 查理 查看 查询 查阅 柴油 柴油机 " +
+  "樊城区 權力 權益 權限 步伐 步入 步兵 步兵师 步子 步枪 步步 步行 步骤 武力 武器 武士 武备 武大 武官 武将 武当 武当山 武昌 武昌区 武术 " +
+  "武汉 武汉市 武汉队 武穴市 武职 武艺 武装 武警 武陵 武陵山 武麻 毛尖 毛病 毛皮 毛笔 水上 水下 水中 水乡 水产 水产业 水产品 水产局 水位 水体 " +
+  "水军 水准 水分 水利 水力 水土 水域 水声 水壶 水师 水平 水库 水底 水性 水手 水文 水族 水晶 水果 水泡 水泥 水泵 水洞 水流 水深 " +
+  "水温 水源 水源地 水溶液 水生 水电 水电站 水稻 水系 水肿 水能 水草 水解 水质 水资源 水路 水运 水道 水量 水银 水陆 水雷 水面 江东 江中 " +
+  "江北 江南 江南西 江城 江夏 江夏区 江家岔 江山 江岸区 江底 江段 江水 江汉 江汉区 江河 江流 江浙 江海 江淮 江湖 江猪 江苏 江苏省 江西 江西省 " +
+  "江豚 江边 江道 江阴 江陵 江陵县 江面 池塘 池河 池际尚 汲取 沈阳 沙俄 沙包 沙发 沙口 沙咀 沙土 沙子 沙市 沙市区 沙市市 沙河 沙洋县 沙洲 " +
+  "沙湖 沙湾 沙漠 沙鱼 洪山区 洪流 洪涝 洪湖市 浦东 游人 游击 游击战 游击队 游动 游历 游子 游客 游戏 游戏机 游泳 游牧 游玩 游离 游荡 游行 " +
+  "游街 游览 游记 滑稽 滿千元 滿足民 焦山河 焦急 焦点 焦虑 焦躁 燕京 燕山 牛奶 牛市 牛皮 牛筋 牛肉 牛车 牧业 牧区 牧场 牧师 牧民 牧草 " +
+  "王位 王国 王室 王家 王者 班主任 班子 班级 班长 甘心 甘愿 甘泉 甘肃 甘肃省 甘蔗 甘薯 田地 田径 田间 申報 申報時 申报 申花 申花队 申诉 " +
+  "申请 畢竟 白人 白夜 白天 白嫩 白家 白带 白族 白果 白沙洲 白洋 白纸 白细胞 白色 白菜 白血病 白衣 白酒 白马 白骨 白鳍豚 皮下 皮子 皮层 " +
+  "皮毛 皮球 皮肉 皮肤 皮质 皮革 皮鞋 盛产 盛京 盛会 盛名 盛大 盛开 盛行 相互 相交 相会 相传 相伴 相似 相信 相关 相助 相反 相同 " +
+  "相处 相宜 相容 相对 相对论 相差 相干 相应 相异 相当 相当于 相待 相持 相接 相救 相望 相机 相比 相称 相符 相等 相繼 相继 相聚 相见 " +
+  "相识 相貌 相距 相近 相连 相通 相逢 相遇 相邻 相间 相隔 石兽 石刻 石化 石匠 石华堰 石器 石块 石墨 石壁 石头 石子 石安 石室 石料 " +
+  "石板 石桥 石棉 石榴石 石油 石湖 石灰 石灰岩 石灰石 石牌岭 石碑 石窟 石膏 石膏矿 石门 石雕 石首 石首市 祖上 祖国 祖坟 祖师 祖父 祖籍 祝愿 " +
+  "秋天 秋季 秋审 秦国 秦家洲 秦属南 秦腔 程序 程序上 程度 程志 穆斯林 空中 空军 空前 空地 空姐 空战 空手 空投 空气 空洞 空白 空缺 空荡荡 " +
+  "空虚 空袭 空调 空运 空间 空降 空降兵 空隙 章程 童年 童装 童话 符号 符合 符號 管事 管制 管子 管家 管教 管理 管理员 管理局 管理层 管理权 " +
+  "管理者 管线 管辖 管道 簡報 簡訊 米业 米兰 米饭 紀方 紀錄 索取 索性 索資 終而 經大 羊毛 羊皮 羊肉 胡乱 胡须 能力 能否 能够 能源 " +
+  "能级 能耐 能量 舒展 舒服 舒畅 舒适 艾滋病 花儿 花卉 花厅 花园 花坛 花山 花木 花朵 花样 花灯 花瓣 花生 花粉 花纹 花色 花草 花菇 " +
+  "花费 花钱 花鸟 苗族 范围 茅屋 茅箭区 莫不 莫名 莫大 莫过于 莫非 萬元正 葛洲坝 董事 董事会 董事长 董家 蒙古 蒙古国 蒙古族 蒙古语 蓋章 蔡甸区 薄弱 " +
+  "薄膜 融入 融化 融合 融洽 融资 衡山 衡諸 衡酌 衡量 解体 解决 解剖 解围 解开 解放 解放军 解放区 解放后 解放路 解救 解散 解析 解毒 解答 " +
+  "解脱 解说 解读 解释 解除 解题 諸如 謝謝 謝謝您 谷主 谷地 谷城 谷城县 谷子 谷底 谷物 貢獻 越南 越发 越国 越是 越来越 越野 路上 路口 " +
+  "路子 路径 路旁 路桥 路灯 路程 路线 路边 路过 路途 路面 辛苦 辜负 通俗 通信 通史 通向 通告 通商 通城 通城县 通天 通宵 通山县 通州 " +
+  "通常 通往 通报 通用 通知 通称 通红 通缉 通航 通行 通衢 通讯 通讯员 通讯社 通话 通货 通车 通过 通道 通风 通高 連結 邢台 那个 那么 " +
+  "那些 那会儿 那位 那個 那儿 那双 那场 那大 那天 那年 那日 那时 那時候 那末 那条 那样 那根 那次 那段 那种 那般 那边 那里 那马 郁闷 " +
+  "都城 都察院 都市 都督 都督府 都统 鄂三州 鄂东 鄂南 鄂城区 鄂州 鄂州市 鄂皖 鄂西 鄂西北 鄂豫皖 金丝 金丝猴 金代 金元 金冠 金利 金华 金台 金子 " +
+  "金属 金星 金正日 金沙江 金牌 金牙 金箔 金色 金花 金蛇 金融 金轮 金针 金钱 金银 金锣 金额 金黄色 闕如 關說 陳情書 陳請人 陶器 陶瓷 隆中 " +
+  "隆冬 隆庆 隆起 隆重 隆隆 雙方 雷击 雷电 項目 須接 顧問 顧問而 高一 高中 高举 高于 高亢 高产 高价 高位 高低 高兴 高出 高分 高分子 " +
+  "高利贷 高压 高原 高台 高呼 高地 高声 高处 高大 高官 高家 高尚 高层 高山 高山族 高峰期 高度 高手 高效 高新 高校 高档 高检 高法 高涨 " +
+  "高温 高炮 高程 高空 高端 高等 高粱 高级 高考 高职 高能 高血压 高贵 高速 高铁 高频 高额 高高 高龄 麻城市 麻将 麻布 麻烦 麻痹 麻糖 " +
+  "麻袋 麻辣酱 麻雀 黃台 黃局長 黃金級 黎族 黨務 黨派 龍局長"
+).split(" "));
+
+const EXTRA_TITLES = [
+  "機要秘書", "代理局長", "代理課長", "代理科長", "代理處長", "代理組長", "代理主任",
+  "會計", "出納", "稽查", "課員", "科員", "專員", "組長", "課長", "司機", "經理", "副總經理", "副總",
+  "董事", "監察人", "理事長", "校長", "廠長", "工程師", "技師", "護理長", "里長", "村長",
+  "主任", "主計", "承辦員", "辦事員", "業務員", "職員", "員工", "受判決人", "受判決人即被告",
+  "代表", "股東", "出資人", "實際負責人", "實際經營者", "登記負責人"
+];
+
+// 句型連接詞：允許夾在職銜與姓名之間（身份疊加、主觀陳述等）
+const ROLE_FILLERS = ["即", "兼", "又名", "暨", "明知", "知悉", "並", "亦", "仍", "而", "與", "及", "之"];
+
+// 硬性免疫：法律專用語、訴訟名詞。人名不得與其重疊
+const IMMUNE_REGEXES = [
+  /應受(?:無罪|有罪|免刑|免訴|刑之宣告|科刑|緩刑)?(?:之)?(?:判決|宣告|裁判)?/g,
+  /(?:無罪|有罪|免訴|免刑|不受理|管轄錯誤)(?:之)?(?:判決|裁判)?/g,
+  /(?:轉帳|現金|匯款|提款|匯出|匯入)支出?/g,
+  /[（(]下稱[^）)\n]{1,20}[）)]/g,
+  /[（(]以下(?:簡)?稱[^）)\n]{1,20}[）)]/g,
+  /[（(]下同[）)]/g
+];
+const ALIAS_RE = /[（(](?:以?下)(?:簡)?稱([^）)\n]{1,20})[）)]/g;
+
+const IMMUNE_TERMS = [
+  "明知", "應受", "應予", "應認", "應得", "足認", "認定", "認為", "受判決人", "受有罪", "受無罪",
+  "得為", "得使", "得以", "准予", "准許", "駁回", "判處", "判決", "裁定", "不得", "不應",
+  "知悉", "處罰", "處以", "處分", "轉帳", "現金", "免訴", "免刑", "無罪", "有罪",
+  "利益", "申請", "聲請", "須知", "經查", "按再審", "核與", "是否", "依據", "依照",
+  "高等法院", "地方法院", "最高法院"
+];
+
+// 否定語法檢驗：法律助動詞 / 審理動詞不得作為姓氏以外的人名成分
+const VETO_NAME_CHARS = new Set(Array.from("應得知受處判准駁認"));
+const VETO_END_CHARS = new Set(Array.from("應得知受處判准駁認罪刑訴案行款帳戶長師員官者性度的人司會條項款號類件書單表率化面方期間所事物"));
+// 一般語詞用字：不得出現在姓氏之後的名字位置（功能詞、代名詞、連接詞）
+const NON_GIVEN_CHARS = new Set(Array.from("於之以及與或而不並是有為其此該這那個的了就都也所出均另等未我你他您們係須"));
+
+const CUE_PREFIXES = [
+  "查詢", "詢問", "詢據", "傳喚", "訊問", "約談", "通知", "委託", "交予", "交付予", "指示", "探詢",
+  "之子", "之妻", "之夫", "之女", "之父", "之母", "之弟", "之兄", "之姐", "之妹", "之友",
+  "函附", "開立", "會同", "偕同", "轉交", "匯予", "匯款予", "轉帳予", "借予", "借款予", "致贈", "告知"
+];
+
+const CJK_RUN = /^[\u4e00-\u9fa5]+/;
+const CJK_ALL = /^[\u4e00-\u9fa5]+$/;
+const ROLE_NAMES_ALL = Array.from(new Set([...LEGAL_ROLES, ...EXTRA_TITLES])).sort((a, b) => b.length - a.length);
+const ROLE_ALT_SPACED = ROLE_NAMES_ALL.map(r => Array.from(r).join("[ \\u3000]*")).join("|");
+const ROLE_ALT_PLAIN = ROLE_NAMES_ALL.join("|");
+const FILL_ALT = [...ROLE_FILLERS].sort((a, b) => b.length - a.length).join("|");
+
+const ROLE_PERSON_RE = new RegExp(`(${ROLE_ALT_SPACED})(?:(?:${FILL_ALT})|(?:${ROLE_ALT_PLAIN}))*[：:\\s\\u3000]*([\\u4e00-\\u9fa5]{2,6})`, "g");
+const HEADER_RE = new RegExp(`^[ \\u3000]*(${ROLE_ALT_SPACED})[ \\u3000：:]+([\\u4e00-\\u9fa5]{2,4})(?=[ \\u3000（(，,、\\r\\n]|$)`, "gm");
+const SINGLE_SURNAMES = Array.from(COMMON_SURNAMES).filter(x => x.length === 1);
+const CUE_RE = new RegExp(`(?:${[...CUE_PREFIXES].sort((a, b) => b.length - a.length).join("|")})(?=[${SINGLE_SURNAMES.join("")}]|${COMPOUND_SURNAMES.join("|")})`, "g");
+const CHAIN_CHARS = new Set(Array.from("及與和、暨"));
+const STANDALONE_RE_SRC = `(?:^|[，、。；：！？（()\\[\\]\\s\\r\\n]|向|至|自|於|與|和|叫|見|由|命|令|委|同|及|找|代|之|依|隨|經|遭|被|因|給|另|請|使|讓|派)(${STANDALONE_NAME_SURNAMES.join("|")})`;
+const TITLE_SUFFIX_SRC = `(${Array.from(COMMON_SURNAMES).sort((a, b) => b.length - a.length).join("|")})([\\u4e00-\\u9fa5]{1,2})(${TITLES.join("|")})`;
+
+const STOPPERS = new Set([...VERB_SUFFIXES, ...CONNECTING_PARTICLES, ...Array.from("之的等及暨和")]);
+
+function startsWithTitle(s) {
+  return TITLES.some(t => s.startsWith(t));
+}
+
+function extractNameFromCandidate(candidateText, strict = true) {
+  const m0 = CJK_RUN.exec(candidateText || "");
+  if (!m0) return null;
+  candidateText = m0[0].substring(0, 8);
+
+  let surname = COMPOUND_SURNAMES.find(cs => candidateText.startsWith(cs)) || null;
+  if (!surname && COMMON_SURNAMES.has(candidateText[0])) surname = candidateText[0];
   if (!surname) return null;
 
   const sLen = surname.length;
-  const possibleLens = [sLen + 1, sLen + 2];
-
-  for (const l of possibleLens) {
+  for (const l of [sLen + 2, sLen + 1]) {
     if (candidateText.length < l) continue;
     const nameCand = candidateText.substring(0, l);
-    const afterCand = candidateText.substring(l);
-
-    if (LEGAL_EXCLUDE_WORDS.has(nameCand)) continue;
-
-    // 若後方接職稱（例如：令狐衡律師、公孫策會計師）
-    if (TITLES.some(t => afterCand.startsWith(t))) {
-      return nameCand;
-    }
-
-    // 若末字為動詞或連接助詞
-    if (VERB_SUFFIXES.has(nameCand[nameCand.length - 1]) || CONNECTING_PARTICLES.has(nameCand[nameCand.length - 1])) {
-      continue;
-    }
-
-    // 若後方接動詞、連接詞、標點或空白
-    if (!afterCand || VERB_SUFFIXES.has(afterCand[0]) || CONNECTING_PARTICLES.has(afterCand[0]) || '（(，,、。：:\n\r '.includes(afterCand[0])) {
-      return nameCand;
-    }
+    const after = candidateText.substring(l);
+    if (LEGAL_EXCLUDE_WORDS.has(nameCand) || NON_NAME_WORDS.has(nameCand) || COMMON_WORDS.has(nameCand)) continue;
+    if (STOPPERS.has(nameCand[nameCand.length - 1]) || Array.from(nameCand.substring(sLen, nameCand.length - 1)).some(c => NON_GIVEN_CHARS.has(c) || "暨和".includes(c))) continue;
+    if (l === sLen + 2 && (startsWithTitle(candidateText.substring(sLen)) || startsWithTitle(candidateText.substring(sLen + 1)))) continue;
+    if (startsWithTitle(after) || !after || STOPPERS.has(after[0])) return nameCand;
+    if (l === sLen + 2 && !strict && !GRAMMATICAL_CHARS.has(surname)) return nameCand;
   }
 
-  if (sLen === 2) {
-    if (candidateText.length >= 4 && !VERB_SUFFIXES.has(candidateText[3]) && !CONNECTING_PARTICLES.has(candidateText[3]) && !TITLES.some(t => candidateText.substring(2).startsWith(t))) {
-      const cand = candidateText.substring(0, 4);
-      if (!LEGAL_EXCLUDE_WORDS.has(cand)) return cand;
-    }
-    if (candidateText.length >= 3 && !VERB_SUFFIXES.has(candidateText[2]) && !CONNECTING_PARTICLES.has(candidateText[2])) {
-      const cand = candidateText.substring(0, 3);
-      if (!LEGAL_EXCLUDE_WORDS.has(cand)) return cand;
-    }
-  } else {
-    if (candidateText.length >= 3 && !VERB_SUFFIXES.has(candidateText[2]) && !CONNECTING_PARTICLES.has(candidateText[2]) && !TITLES.some(t => candidateText.substring(1).startsWith(t))) {
-      const cand = candidateText.substring(0, 3);
-      if (!LEGAL_EXCLUDE_WORDS.has(cand)) return cand;
-    }
-    if (candidateText.length >= 2 && !VERB_SUFFIXES.has(candidateText[1]) && !CONNECTING_PARTICLES.has(candidateText[1])) {
-      const cand = candidateText.substring(0, 2);
-      if (!LEGAL_EXCLUDE_WORDS.has(cand)) return cand;
+  if (!strict && !GRAMMATICAL_CHARS.has(surname) && candidateText.length >= sLen + 1) {
+    const cand = candidateText.substring(0, sLen + 1);
+    if (!LEGAL_EXCLUDE_WORDS.has(cand) && !NON_NAME_WORDS.has(cand) && !STOPPERS.has(cand[cand.length - 1])) {
+      return cand;
     }
   }
-
   return null;
+}
+
+function buildImmuneMask(text) {
+  const mask = new Uint8Array(text.length);
+  const mark = (a, b) => { for (let k = a; k < b; k++) mask[k] = 1; };
+  for (const rx of IMMUNE_REGEXES) {
+    for (const m of text.matchAll(rx)) {
+      if (m[0].length > 0) mark(m.index, m.index + m[0].length);
+    }
+  }
+  const markAll = (term) => {
+    let idx = text.indexOf(term);
+    while (idx !== -1) {
+      mark(idx, idx + term.length);
+      idx = text.indexOf(term, idx + term.length);
+    }
+  };
+  for (const term of IMMUNE_TERMS) markAll(term);
+  const aliases = new Set();
+  for (const m of text.matchAll(ALIAS_RE)) aliases.add(m[1].trim());
+  for (const alias of aliases) {
+    if (alias.length < 2 || !CJK_ALL.test(alias)) continue;
+    markAll(alias);
+  }
+  return mask;
+}
+
+// 回傳自然人 / 訴訟關係人候選 span（type: "訴訟關係人" | "自然人"）
+function extractPersonSpans(text) {
+  const spans = [];
+  const knownPersons = new Map();
+  const n = text.length;
+  const immune = buildImmuneMask(text);
+  const occupied = new Uint8Array(n);
+  const trustedNames = new Set();
+
+  const anySet = (mask, a, b) => {
+    for (let k = a; k < b; k++) if (mask[k]) return true;
+    return false;
+  };
+  const isCompound = (name) => COMPOUND_SURNAMES.includes(name.substring(0, 2));
+
+  const validName = (name, a, b, trusted = false) => {
+    if (name.length < 2 || name.length > 4 || !CJK_ALL.test(name)) return false;
+    if (LEGAL_EXCLUDE_WORDS.has(name) || NON_NAME_WORDS.has(name)) return false;
+    if (!trusted && COMMON_WORDS.has(name)) return false;
+    if (anySet(immune, a, b)) return false;
+    if (!trusted) {
+      const sl = isCompound(name) ? 2 : 1;
+      if (VETO_END_CHARS.has(name[name.length - 1])) return false;
+      for (const c of name.substring(sl)) {
+        if (VETO_NAME_CHARS.has(c) || NON_GIVEN_CHARS.has(c)) return false;
+      }
+    }
+    return true;
+  };
+
+  const add = (a, b, name, type, role, trusted = false) => {
+    if (!validName(name, a, b, trusted) || anySet(occupied, a, b)) return false;
+    spans.push({ start: a, end: b, text: name, type, role: role || undefined });
+    for (let k = a; k < b; k++) occupied[k] = 1;
+    if (!knownPersons.get(name)) knownPersons.set(name, role || "關係人");
+    return true;
+  };
+
+  const resolve = (name) => {
+    if (name) {
+      for (const k of trustedNames) {
+        if (name !== k && name.startsWith(k) && name.length - k.length <= 1) return k;
+      }
+    }
+    return name;
+  };
+
+  const chain = (end, role, strict = true) => {
+    while (end < n && CHAIN_CHARS.has(text[end])) {
+      const name = resolve(extractNameFromCandidate(text.substring(end + 1, end + 9), strict));
+      if (!name) return;
+      const a = end + 1;
+      if (!add(a, a + name.length, name, "訴訟關係人", role || "關係人")) return;
+      end = a + name.length;
+    }
+  };
+
+  // 0. 判決/書狀頭部錨定：權威當事人
+  const head = text.substring(0, 4000);
+  for (const m of head.matchAll(HEADER_RE)) {
+    const role = m[1].replace(/[\s\u3000]+/g, "");
+    const cand = m[2];
+    const name = extractNameFromCandidate(cand) || cand;
+    if (name && (COMMON_SURNAMES.has(name[0]) || COMPOUND_SURNAMES.some(c => name.startsWith(c)))) {
+      const a = m.index + m[0].lastIndexOf(cand);
+      if (add(a, a + name.length, name, "訴訟關係人", role, true)) trustedNames.add(name);
+    }
+  }
+
+  // 1. 動態職銜 + 複合公文句式
+  ROLE_PERSON_RE.lastIndex = 0;
+  let m;
+  while ((m = ROLE_PERSON_RE.exec(text)) !== null) {
+    const role = m[1].replace(/[\s\u3000]+/g, "");
+    const a = m.index + m[0].length - m[2].length;
+    const name = resolve(extractNameFromCandidate(text.substring(a, a + 8), false));
+    if (!name) continue;
+    if (add(a, a + name.length, name, "訴訟關係人", role)) {
+      chain(a + name.length, role);
+    }
+  }
+
+  // 2. 獨立複姓人名
+  const compoundRe = new RegExp(`(${COMPOUND_SURNAMES.join("|")})([\\u4e00-\\u9fa5]{1,4})`, "g");
+  while ((m = compoundRe.exec(text)) !== null) {
+    const name = resolve(extractNameFromCandidate(text.substring(m.index, m.index + 8)));
+    if (name) add(m.index, m.index + name.length, name, "自然人", null);
+  }
+
+  // 3. 姓氏 + 職稱（黃國昌律師）
+  const titleRe = new RegExp(TITLE_SUFFIX_SRC, "g");
+  let pos = 0;
+  while (true) {
+    titleRe.lastIndex = pos;
+    m = titleRe.exec(text);
+    if (!m) break;
+    if (GRAMMATICAL_CHARS.has(m[1])) { pos = m.index + 1; continue; }
+    const name = m[1] + m[2];
+    add(m.index, m.index + name.length, name, "自然人", "專業人士");
+    pos = m.index + m[0].length;
+  }
+
+  // 4. 頓號列舉
+  const enumRe = /(?:[\u4e00-\u9fa5]{2,3}、)+[\u4e00-\u9fa5]{2,3}/g;
+  while ((m = enumRe.exec(text)) !== null) {
+    const items = m[0].split("、");
+    const allNames = items.length >= 2 && items.every(it =>
+      (it.length === 2 || it.length === 3) &&
+      (COMMON_SURNAMES.has(it[0]) || COMPOUND_SURNAMES.some(cs => it.startsWith(cs))) &&
+      !LEGAL_EXCLUDE_WORDS.has(it)
+    ) && (items.some(it => knownPersons.has(it)) || (items.length >= 3 && items.every(it => it.length === 3)));
+    if (allNames) {
+      let offset = 0;
+      for (const it of items) {
+        const p = m[0].indexOf(it, offset);
+        offset = p + it.length;
+        add(m.index + p, m.index + p + it.length, it, "訴訟關係人", "關係人");
+      }
+    }
+  }
+
+  // 5. 句中無稱謂：動詞線索（查詢郭敏及郭莉娟）
+  CUE_RE.lastIndex = 0;
+  while ((m = CUE_RE.exec(text)) !== null) {
+    const a = m.index + m[0].length;
+    const name = resolve(extractNameFromCandidate(text.substring(a, a + 8), false));
+    if (name && add(a, a + name.length, name, "訴訟關係人", "關係人")) {
+      chain(a + name.length, "關係人", false);
+    }
+  }
+
+  // 6. 獨立單姓無前綴姓名
+  const standaloneRe = new RegExp(STANDALONE_RE_SRC, "g");
+  while ((m = standaloneRe.exec(text)) !== null) {
+    const si = m.index + m[0].length - m[1].length;
+    let matched = null;
+    for (const length of [3, 2]) {
+      const ei = si + length;
+      if (ei <= n) {
+        const cand = text.substring(si, ei);
+        if (!CJK_ALL.test(cand)) continue;
+        if (INVALID_NAME_ENDINGS.has(cand[cand.length - 1]) || LEGAL_EXCLUDE_WORDS.has(cand) || NON_NAME_WORDS.has(cand)) continue;
+        const nc = ei < n ? text[ei] : "";
+        if (!nc || FOLLOW_CHARS.has(nc) || /\s/.test(nc)) { matched = cand; break; }
+      }
+    }
+    if (matched) add(si, si + matched.length, matched, "自然人", "關係人");
+  }
+
+  // 7. 全局傳播（較長姓名優先；不得切入免疫區或已標記區）
+  const known = Array.from(knownPersons.entries()).sort((a, b) => b[0].length - a[0].length);
+  for (const [name, role] of known) {
+    if (name.length < 2) continue;
+    let idx = text.indexOf(name);
+    while (idx !== -1) {
+      const e = idx + name.length;
+      if (!anySet(occupied, idx, e) && !anySet(immune, idx, e)) {
+        spans.push({ start: idx, end: e, text: name, type: "訴訟關係人", role: role || "關係人" });
+        for (let k = idx; k < e; k++) occupied[k] = 1;
+      }
+      idx = text.indexOf(name, e);
+    }
+  }
+  return spans;
 }
 
 class DeidEngine {
@@ -286,7 +581,6 @@ class DeidEngine {
 
   detectEntities(text) {
     const spans = [];
-    const knownPersons = {}; // name -> role
 
     // 1. 身分證號 (Rule 01)
     const idRegex = /(?<![A-Za-z0-9])([A-Z][1289]\d{8})(?![A-Za-z0-9])/g;
@@ -549,141 +843,8 @@ class DeidEngine {
       }
     }
 
-    // 7. 自然人與法律訴訟關係人 (相容法院文書「被　　　告」等全形間隔與無冒號職銜前綴)
-    const spacedRoleParts = LEGAL_ROLES.map(r => r.split("").join("[\\s\\u3000]*"));
-    const rolePersonRegex = new RegExp(`(${spacedRoleParts.join('|')})[\\s\\u3000：:]*([\\u4e00-\\u9fa5]{2,6})`, 'g');
-    while ((m = rolePersonRegex.exec(text)) !== null) {
-      const roleName = m[1].replace(/[\s\u3000]+/g, '');
-      const rawSlice = m[2];
-      const validName = extractNameFromCandidate(rawSlice);
-
-      if (validName && !LEGAL_EXCLUDE_WORDS.has(validName)) {
-        const nameStart = m.index + m[0].indexOf(validName);
-        spans.push({
-          start: nameStart,
-          end: nameStart + validName.length,
-          text: validName,
-          type: "訴訟關係人",
-          role: roleName
-        });
-        if (!knownPersons[validName]) {
-          knownPersons[validName] = roleName;
-        }
-      }
-    }
-
-    // 獨立複姓人名掃描（如未帶角色標籤的 歐陽若蘭、諸葛景雲、司徒長風）
-    const compoundPattern = new RegExp(`(${COMPOUND_SURNAMES.join('|')})([\\u4e00-\\u9fa5]{1,4})`, 'g');
-    while ((m = compoundPattern.exec(text)) !== null) {
-      const fullSlice = m[0];
-      const validName = extractNameFromCandidate(fullSlice);
-      if (validName && !LEGAL_EXCLUDE_WORDS.has(validName)) {
-        spans.push({
-          start: m.index,
-          end: m.index + validName.length,
-          text: validName,
-          type: "自然人"
-        });
-        if (!knownPersons[validName]) {
-          knownPersons[validName] = "關係人";
-        }
-      }
-    }
-
-    // 姓氏 + 職稱掃描（例如：黃國昌律師、辜允中律師、張醫師、陸正義律師）
-    const surnameArr = Array.from(COMMON_SURNAMES);
-    const titlePattern = new RegExp(`(${surnameArr.join('|')})([\\u4e00-\\u9fa5]{1,2})(${TITLES.join('|')})`, 'g');
-    while ((m = titlePattern.exec(text)) !== null) {
-      const nameCandidate = m[1] + m[2];
-      if (!LEGAL_EXCLUDE_WORDS.has(nameCandidate)) {
-        spans.push({
-          start: m.index,
-          end: m.index + nameCandidate.length,
-          text: nameCandidate,
-          type: "自然人"
-        });
-        if (!knownPersons[nameCandidate]) {
-          knownPersons[nameCandidate] = "專業人士";
-        }
-      }
-    }
-
-    // 連續頓號姓名列舉辨識（例如：不知情之洪秀鳳、陳秀桃、童中白、黃淑雯、劉芷安）
-    const enumRegex = /(?:[\u4e00-\u9fa5]{2,3}、)+[\u4e00-\u9fa5]{2,3}/g;
-    while ((m = enumRegex.exec(text)) !== null) {
-      const items = m[0].split("、");
-      const isAllNames = items.length >= 2 && items.every(it => 
-        (it.length >= 2 && it.length <= 3 && (COMMON_SURNAMES.has(it[0]) || COMPOUND_SURNAMES.some(cs => it.startsWith(cs)))) &&
-        !LEGAL_EXCLUDE_WORDS.has(it)
-      );
-      if (isAllNames) {
-        let offset = 0;
-        for (const it of items) {
-          const itemIdx = m.index + m[0].indexOf(it, offset);
-          offset = m[0].indexOf(it, offset) + it.length;
-          spans.push({
-            start: itemIdx,
-            end: itemIdx + it.length,
-            text: it,
-            type: "訴訟關係人",
-            role: "關係人"
-          });
-          if (!knownPersons[it]) {
-            knownPersons[it] = "關係人";
-          }
-        }
-      }
-    }
-
-    // 獨立單姓無前綴姓名辨識（例如：「李真真他說...」、「王小明也同意」、「張三向李四借款」）
-    const standalonePattern = new RegExp(`(?:^|[，、。；：！？（()\\[\\]\\s\\r\\n]|向|至|自|於|與|和|叫|見|由|命|令|委|同|及|找|代|之|依|隨|經|遭|被|因|給|另|請|使|讓|派)(${STANDALONE_NAME_SURNAMES.join("|")})`, "g");
-    while ((m = standalonePattern.exec(text)) !== null) {
-      const surnameIdx = m.index + m[0].length - m[1].length;
-      let matchedName = null;
-      for (const length of [3, 2]) {
-        const endIdx = surnameIdx + length;
-        if (endIdx <= text.length) {
-          const cand = text.substring(surnameIdx, endIdx);
-          if (!/^[\u4e00-\u9fa5]+$/.test(cand)) continue;
-          if (INVALID_NAME_ENDINGS.has(cand[cand.length - 1])) continue;
-          if (LEGAL_EXCLUDE_WORDS.has(cand) || NON_NAME_WORDS.has(cand)) continue;
-          const nextChar = endIdx < text.length ? text[endIdx] : "";
-          if (!nextChar || FOLLOW_CHARS.has(nextChar) || /\s/.test(nextChar)) {
-            matchedName = cand;
-            break;
-          }
-        }
-      }
-      if (matchedName) {
-        spans.push({
-          start: surnameIdx,
-          end: surnameIdx + matchedName.length,
-          text: matchedName,
-          type: "自然人",
-          role: "關係人"
-        });
-        if (!knownPersons[matchedName]) {
-          knownPersons[matchedName] = "關係人";
-        }
-      }
-    }
-
-    // 全局人名傳播：在本文中確認為人名者，全文所有相同字串一併納入
-    for (const [name, role] of Object.entries(knownPersons)) {
-      if (name.length < 2) continue;
-      let idx = 0;
-      while ((idx = text.indexOf(name, idx)) !== -1) {
-        const endIdx = idx + name.length;
-        spans.push({
-          start: idx,
-          end: endIdx,
-          text: name,
-          type: "訴訟關係人",
-          role: role || "關係人"
-        });
-        idx = endIdx;
-      }
-    }
+    // 7. 自然人與法律訴訟關係人（法律語義邊界演算法，詳見 extractPersonSpans）
+    for (const ps of extractPersonSpans(text)) spans.push(ps);
 
     // 8. 衝突消解 (Non-overlapping Span Selection via Uint8Array mask)
     spans.sort((a, b) => {
