@@ -137,6 +137,45 @@ const CONNECTING_PARTICLES = new Set([
   "在", "於", "至", "與", "及", "同"
 ]);
 
+// 易產生語法衝突之百家姓字（不作為獨立無前綴掃描姓氏）
+const GRAMMATICAL_CHARS = new Set([
+  "公", "全", "任", "利", "勞", "包", "印", "危", "古", "司", "向", "元", "充", "別", "儲",
+  "冀", "常", "平", "強", "空", "解", "經", "管", "相", "方", "成", "文", "安", "東", "居",
+  "國", "師", "水", "雲", "雷", "萬", "單", "石", "白", "同", "正", "自", "由", "尚", "容",
+  "後", "左", "通", "邊", "長", "過", "進", "行", "受", "取", "得", "將", "隨", "中", "大",
+  "小", "上", "下", "開", "關", "問", "見", "命", "令", "法", "理", "新", "老", "先", "生",
+  "應", "從", "於", "支", "明", "易", "喬", "廉", "能", "信", "和", "花", "山", "谷", "車",
+  "步", "都", "廣", "金", "宗", "宣", "家", "康", "懷", "施", "時", "扶", "房", "費", "樂",
+  "暴", "甘", "皮", "計", "毛", "狄", "米", "伏", "麻", "路", "農", "溫", "柴", "習"
+]);
+
+const STANDALONE_NAME_SURNAMES = Array.from(COMMON_SURNAMES).filter(
+  s => !GRAMMATICAL_CHARS.has(s) && !COMPOUND_SURNAMES.includes(s)
+).sort((a, b) => b.length - a.length);
+
+const NON_NAME_WORDS = new Set([
+  "陳情", "陳述", "陳報", "陳明", "黃金", "周遭", "周全", "周旋", "周詳", "周密", "周轉",
+  "何時", "何地", "何人", "何處", "何以", "何須", "何者", "何事", "何物", "何故",
+  "柯案", "沈案", "彭案", "應案", "李案",
+  "高層", "高等", "高度", "高達", "高額", "高價", "高階",
+  "童工", "童年", "童心", "錢財", "金錢", "費用"
+]);
+
+const INVALID_NAME_ENDINGS = new Set([
+  "說", "稱", "指", "述", "問", "答", "辯", "告", "認", "道", "謂", "云", "表", "示", "提", "出",
+  "想", "知", "至", "往", "於", "向", "自", "與", "和", "經", "遭", "被", "因", "由", "將", "隨",
+  "即", "曾", "未", "亦", "乃", "均", "並", "且", "共", "互", "各", "也", "去", "來", "到", "在",
+  "返", "回", "進", "入", "借", "貸", "還", "付", "給", "收", "受", "買", "賣", "取", "領", "存",
+  "匯", "轉", "簽", "署", "立", "駕", "駛", "乘", "開", "騎", "行", "走", "住", "居", "生", "死",
+  "亡", "傷", "殺", "害", "打", "毆", "偷", "竊", "涉", "犯", "前", "往", "他", "她", "其", "等",
+  "之", "的", "得", "地", "了", "著", "過", "是", "有", "無", "非", "副", "長", "官", "員", "董",
+  "師", "君", "老", "先", "案",
+  ...Array.from(VERB_SUFFIXES),
+  ...Array.from(CONNECTING_PARTICLES)
+]);
+
+const FOLLOW_CHARS = new Set(Array.from("說稱指述問答辯告認道謂云表示提出想知至往於向自與和經遭被因由將隨即曾未亦乃均並且共互各也去來到在返回進入借貸還付給收受買賣取領存匯轉簽署立駕駛乘開騎行走住居生死亡傷殺害打毆偷竊涉犯前往他她其等之，、。；：！？（()[]\n\r "));
+
 const TAIWAN_CITIES = [
   "臺北市", "台北市", "新北市", "桃園市", "臺中市", "台中市", "臺南市", "台南市", "高雄市",
   "基隆市", "新竹市", "嘉義市", "新竹縣", "苗栗縣", "彰化縣", "南投縣", "雲林縣", "嘉義縣",
@@ -592,6 +631,39 @@ class DeidEngine {
           if (!knownPersons[it]) {
             knownPersons[it] = "關係人";
           }
+        }
+      }
+    }
+
+    // 獨立單姓無前綴姓名辨識（例如：「李真真他說...」、「王小明也同意」、「張三向李四借款」）
+    const standalonePattern = new RegExp(`(?:^|[，、。；：！？（()\\[\\]\\s\\r\\n]|向|至|自|於|與|和|叫|見|由|命|令|委|同|及|找|代|之|依|隨|經|遭|被|因|給|另|請|使|讓|派)(${STANDALONE_NAME_SURNAMES.join("|")})`, "g");
+    while ((m = standalonePattern.exec(text)) !== null) {
+      const surnameIdx = m.index + m[0].length - m[1].length;
+      let matchedName = null;
+      for (const length of [3, 2]) {
+        const endIdx = surnameIdx + length;
+        if (endIdx <= text.length) {
+          const cand = text.substring(surnameIdx, endIdx);
+          if (!/^[\u4e00-\u9fa5]+$/.test(cand)) continue;
+          if (INVALID_NAME_ENDINGS.has(cand[cand.length - 1])) continue;
+          if (LEGAL_EXCLUDE_WORDS.has(cand) || NON_NAME_WORDS.has(cand)) continue;
+          const nextChar = endIdx < text.length ? text[endIdx] : "";
+          if (!nextChar || FOLLOW_CHARS.has(nextChar) || /\s/.test(nextChar)) {
+            matchedName = cand;
+            break;
+          }
+        }
+      }
+      if (matchedName) {
+        spans.push({
+          start: surnameIdx,
+          end: surnameIdx + matchedName.length,
+          text: matchedName,
+          type: "自然人",
+          role: "關係人"
+        });
+        if (!knownPersons[matchedName]) {
+          knownPersons[matchedName] = "關係人";
         }
       }
     }
