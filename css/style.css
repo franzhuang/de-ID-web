@@ -69,11 +69,6 @@ header {
   border: 1px solid #bbf7d0;
 }
 
-.description {
-  color: var(--text-muted);
-  font-size: 0.95rem;
-}
-
 /* Tabs */
 .tabs {
   display: flex;
