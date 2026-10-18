@@ -94,7 +94,9 @@ const LEGAL_ROLES = [
   "市長", "副市長", "秘書長", "副秘書長", "主任秘書", "秘書", "承辦人員", "承辦公務員", "承辦人", "總工程司", "幫工程司", "技士",
   "議員", "議長", "副議長", "立法委員", "委員", "助理", "友人", "同居人",
   "主治醫師", "主治大夫", "醫師", "院長", "護理師", "護士", "放射師", "心理師", "會計師", "建築師", "地政士", "代書",
-  "原告", "被告", "法官", "證人", "配偶", "家屬", "父親", "母親"
+  "原告", "被告", "法官", "證人", "配偶", "家屬", "父親", "母親",
+  // 警政、公文、查詢與表單常見欄位標籤
+  "姓名", "當事人姓名", "受查詢人", "查詢對象", "被查詢人", "受查人", "被查人", "受訊人"
 ];
 
 // 職稱後綴
@@ -128,7 +130,7 @@ const VERB_SUFFIXES = new Set([
   "駕", "駛", "乘", "坐", "騎", "轉", "匯", "存", "領", "簽", "署", "具",
   "送", "受", "取", "得", "付", "給", "買", "賣", "侵", "占", "背", "信",
   "偽", "造", "毀", "損", "害", "傷", "殺", "打", "毆", "偷", "竊", "搶",
-  "奪", "索", "逃", "避", "匿"
+  "奪", "索", "逃", "避", "匿", "詐", "騙", "貪", "賄", "押"
 ]);
 
 const CONNECTING_PARTICLES = new Set([
@@ -175,7 +177,10 @@ const INVALID_NAME_ENDINGS = new Set([
   ...Array.from(CONNECTING_PARTICLES)
 ]);
 
-const FOLLOW_CHARS = new Set(Array.from("及暨說稱指述問答辯告認道謂云表示提出想知至往於向自與和經遭被因由將隨即曾未亦乃均並且共互各也去來到在返回進入借貸還付給收受買賣取領存匯轉簽署立駕駛乘開騎行走住居生死亡傷殺害打毆偷竊涉犯前往他她其等之，、。；：！？（()[]\n\r "));
+const FOLLOW_CHARS = new Set(Array.from(
+  "及暨說稱指述問答辯告認道謂云表示提出想知至往於向自與和經遭被因由將隨即曾未亦乃均並且共互各也去來到在返回進入借貸還付給收受買賣取領存匯轉簽署立駕駛乘開騎行走住居生死亡傷殺害打毆偷竊涉犯前往他她其等之，、。；：！？（()[]\\n\\r " +
+  "·・•‧●○:;,\t/／|｜\\~～-_—「」『』“”\"'《》〈〉【】〔〕{}（）()"
+));
 
 const TAIWAN_CITIES = [
   "臺北市", "台北市", "新北市", "桃園市", "臺中市", "台中市", "臺南市", "台南市", "高雄市",
@@ -328,7 +333,8 @@ const NON_GIVEN_CHARS = new Set(Array.from("於之以及與或而不並是有為
 const CUE_PREFIXES = [
   "查詢", "詢問", "詢據", "傳喚", "訊問", "約談", "通知", "委託", "交予", "交付予", "指示", "探詢",
   "之子", "之妻", "之夫", "之女", "之父", "之母", "之弟", "之兄", "之姐", "之妹", "之友",
-  "函附", "開立", "會同", "偕同", "轉交", "匯予", "匯款予", "轉帳予", "借予", "借款予", "致贈", "告知"
+  "函附", "開立", "會同", "偕同", "轉交", "匯予", "匯款予", "轉帳予", "借予", "借款予", "致贈", "告知",
+  "清查", "稽查", "受查", "受詢", "查獲", "查得", "查訪", "對象", "姓名", "當事人姓名", "受查詢人", "被查詢人", "受處分人", "被查人", "受訊人", "查"
 ];
 
 const CJK_RUN = /^[\u4e00-\u9fa5]+/;
@@ -341,10 +347,26 @@ const FILL_ALT = [...ROLE_FILLERS].sort((a, b) => b.length - a.length).join("|")
 const ROLE_PERSON_RE = new RegExp(`(${ROLE_ALT_SPACED})(?:(?:${FILL_ALT})|(?:${ROLE_ALT_PLAIN}))*[：:\\s\\u3000]*([\\u4e00-\\u9fa5]{2,6})`, "g");
 const HEADER_RE = new RegExp(`^[ \\u3000]*(${ROLE_ALT_SPACED})[ \\u3000：:]+([\\u4e00-\\u9fa5]{2,4})(?=[ \\u3000（(，,、\\r\\n]|$)`, "gm");
 const SINGLE_SURNAMES = Array.from(COMMON_SURNAMES).filter(x => x.length === 1);
-const CUE_RE = new RegExp(`(?:${[...CUE_PREFIXES].sort((a, b) => b.length - a.length).join("|")})(?=[${SINGLE_SURNAMES.join("")}]|${COMPOUND_SURNAMES.join("|")})`, "g");
-const CHAIN_CHARS = new Set(Array.from("及與和、暨"));
-const STANDALONE_RE_SRC = `(?:^|[，、。；：！？（()\\[\\]\\s\\r\\n]|向|至|自|於|與|和|叫|見|由|命|令|委|同|及|找|代|之|依|隨|經|遭|被|因|給|另|請|使|讓|派)(${STANDALONE_NAME_SURNAMES.join("|")})`;
+const CUE_RE = new RegExp(`(?:${[...CUE_PREFIXES].sort((a, b) => b.length - a.length).join("|")})[：:\\s\\u3000]*(?=[${SINGLE_SURNAMES.join("")}]|${COMPOUND_SURNAMES.join("|")})`, "g");
+const CHAIN_DELIM_RE = /^[ \t\u3000]*[及與和、暨·・•‧●/／,，][ \t\u3000]*/;
+
+const _PUNCT_CLASS = ",，、。；;：:！？!?（()\\[\\]{}〔〕「」『』“”\"'《》〈〉【】\\s\\r\\n\\t·・•‧●○|｜/／\\\\~～\\-_—";
+const STANDALONE_RE_SRC = `(?:^|[${_PUNCT_CLASS}]|向|至|自|於|與|和|叫|見|由|命|令|委|同|及|找|代|之|依|隨|經|遭|被|因|給|另|請|使|讓|派)(${STANDALONE_NAME_SURNAMES.join("|")})`;
 const TITLE_SUFFIX_SRC = `(${Array.from(COMMON_SURNAMES).sort((a, b) => b.length - a.length).join("|")})([\\u4e00-\\u9fa5]{1,2})(${TITLES.join("|")})`;
+
+const TAIWAN_BANKS = [
+  "合作金庫", "合庫", "第一銀行", "一銀", "華南銀行", "華銀", "彰化銀行", "彰銀",
+  "兆豐銀行", "兆豐", "臺灣銀行", "台銀", "土地銀行", "土銀", "國泰世華", "世華",
+  "台北富邦", "富邦銀行", "富邦", "中國信託", "中信銀", "中信", "玉山銀行", "玉山",
+  "台新銀行", "台新", "中華郵政", "郵局", "永豐銀行", "永豐", "聯邦銀行", "聯邦",
+  "元大銀行", "元大", "凱基銀行", "凱基", "新光銀行", "新光", "上海商銀", "上海商業儲蓄銀行",
+  "遠東銀行", "遠東商銀", "渣打銀行", "渣打", "匯豐銀行", "匯豐", "星展銀行", "星展",
+  "王道銀行", "王道", "LINE Bank", "連線銀行", "將來銀行", "樂天銀行",
+  "高雄銀行", "高銀", "台中銀行", "京城銀行", "陽信銀行", "板信商銀", "華泰銀行", "三信商銀",
+  "農會", "漁會", "信用合作社", "信合社"
+];
+const _BANK_ALT = [...TAIWAN_BANKS].sort((a, b) => b.length - a.length).join("|");
+const BANK_HOLDER_RE = new RegExp(`(?:${_BANK_ALT})[,，\\s\\t:：]+(?:戶名[,，\\s\\t:：]*)?([\\u4e00-\\u9fa5]{2,4})(?=[,，\\s\\t·/／0-9]|$)`, "g");
 
 const STOPPERS = new Set([...VERB_SUFFIXES, ...CONNECTING_PARTICLES, ...Array.from("之的等及暨和")]);
 
@@ -455,11 +477,16 @@ function extractPersonSpans(text) {
   };
 
   const chain = (end, role, strict = true) => {
-    while (end < n && CHAIN_CHARS.has(text[end])) {
-      const name = resolve(extractNameFromCandidate(text.substring(end + 1, end + 9), strict));
+    while (end < n) {
+      const rest = text.substring(end);
+      const mDelim = CHAIN_DELIM_RE.exec(rest);
+      if (!mDelim || mDelim.index !== 0) break;
+      const delimLen = mDelim[0].length;
+      const name = resolve(extractNameFromCandidate(text.substring(end + delimLen, end + delimLen + 8), strict));
       if (!name) return;
-      const a = end + 1;
-      if (!add(a, a + name.length, name, "訴訟關係人", role || "關係人")) return;
+      const a = end + delimLen;
+      const type = role ? "訴訟關係人" : "自然人";
+      if (!add(a, a + name.length, name, type, role)) return;
       end = a + name.length;
     }
   };
@@ -480,12 +507,28 @@ function extractPersonSpans(text) {
   ROLE_PERSON_RE.lastIndex = 0;
   let m;
   while ((m = ROLE_PERSON_RE.exec(text)) !== null) {
-    const role = m[1].replace(/[\s\u3000]+/g, "");
+    const roleRaw = m[1].replace(/[\s\u3000]+/g, "");
+    const isNameField = ["姓名", "當事人姓名", "名"].includes(roleRaw);
+    const role = isNameField ? null : roleRaw;
+    const type = isNameField ? "自然人" : "訴訟關係人";
     const a = m.index + m[0].length - m[2].length;
     const name = resolve(extractNameFromCandidate(text.substring(a, a + 8), false));
     if (!name) continue;
-    if (add(a, a + name.length, name, "訴訟關係人", role)) {
+    if (add(a, a + name.length, name, type, role)) {
       chain(a + name.length, role);
+    }
+  }
+
+  // 1b. 銀行/行庫名稱引導之戶名（交易明細，如「合庫,李大山,123456789」或「第一銀行,張木川,」）
+  BANK_HOLDER_RE.lastIndex = 0;
+  while ((m = BANK_HOLDER_RE.exec(text)) !== null) {
+    const cand = m[1];
+    const name = resolve(extractNameFromCandidate(cand, false)) || cand;
+    if (name && (COMMON_SURNAMES.has(name[0]) || COMPOUND_SURNAMES.some(cs => name.startsWith(cs)))) {
+      const a = m.index + m[0].lastIndexOf(cand);
+      if (add(a, a + name.length, name, "自然人", null)) {
+        chain(a + name.length, null, false);
+      }
     }
   }
 
@@ -509,32 +552,32 @@ function extractPersonSpans(text) {
     pos = m.index + m[0].length;
   }
 
-  // 4. 頓號列舉
-  const enumRe = /(?:[\u4e00-\u9fa5]{2,3}、)+[\u4e00-\u9fa5]{2,3}/g;
+  // 4. 頓號 / 間隔號 / 斜線列舉（例：張木川·張美花 或 張三、李四）
+  const enumRe = /(?:[\u4e00-\u9fa5]{2,3}[、·・•‧/／])+[\u4e00-\u9fa5]{2,3}/g;
   while ((m = enumRe.exec(text)) !== null) {
-    const items = m[0].split("、");
+    const items = m[0].split(/[、·・•‧/／]/);
     const allNames = items.length >= 2 && items.every(it =>
       (it.length === 2 || it.length === 3) &&
       (COMMON_SURNAMES.has(it[0]) || COMPOUND_SURNAMES.some(cs => it.startsWith(cs))) &&
       !LEGAL_EXCLUDE_WORDS.has(it)
-    ) && (items.some(it => knownPersons.has(it)) || (items.length >= 3 && items.every(it => it.length === 3)));
+    ) && (items.some(it => knownPersons.has(it)) || (items.length >= 2 && items.every(it => COMMON_SURNAMES.has(it[0]))));
     if (allNames) {
       let offset = 0;
       for (const it of items) {
         const p = m[0].indexOf(it, offset);
         offset = p + it.length;
-        add(m.index + p, m.index + p + it.length, it, "訴訟關係人", "關係人");
+        add(m.index + p, m.index + p + it.length, it, "自然人", null);
       }
     }
   }
 
-  // 5. 句中無稱謂：動詞線索（查詢郭敏及郭莉娟）
+  // 5. 句中無稱謂：動詞與查詢線索（查：張木川、查詢郭敏及郭莉娟）
   CUE_RE.lastIndex = 0;
   while ((m = CUE_RE.exec(text)) !== null) {
     const a = m.index + m[0].length;
     const name = resolve(extractNameFromCandidate(text.substring(a, a + 8), false));
-    if (name && add(a, a + name.length, name, "訴訟關係人", "關係人")) {
-      chain(a + name.length, "關係人", false);
+    if (name && add(a, a + name.length, name, "自然人", null)) {
+      chain(a + name.length, null, false);
     }
   }
 
@@ -638,16 +681,34 @@ class DeidEngine {
       }
     }
 
-    // 銀行/郵局帳號 (10~20碼，含行庫代碼或分行號)
-    const bankAcctRegex = /(?:帳號|帳戶|金融帳號|存款帳號|郵局帳號|行庫帳號|轉入帳號|匯入帳號|扣款帳號|戶名[\s\S]{0,10}帳號)[：:\s]*(?<!\d)([0-9-]{10,24})(?!\d)/g;
+    // 銀行/郵局帳號
+    // (a) 前綴關鍵字引導（帳號、帳戶、局號等，放寬至 8~20碼）
+    const bankAcctRegex = /(?:帳號|帳戶|金融帳號|存款帳號|郵局帳號|行庫帳號|轉入帳號|匯入帳號|扣款帳號|局號|戶名[\s\S]{0,10}帳號)[：:\s]*(?<!\d)([0-9-]{8,24})(?!\d)/g;
     while ((m = bankAcctRegex.exec(text)) !== null) {
       const rawStr = m[1];
       const digitsOnly = rawStr.replace(/\D/g, '');
-      if (digitsOnly.length >= 10 && digitsOnly.length <= 20) {
+      if (digitsOnly.length >= 8 && digitsOnly.length <= 20) {
         const offset = m[0].indexOf(rawStr);
         spans.push({
           start: m.index + offset,
           end: m.index + offset + rawStr.length,
+          text: rawStr,
+          type: "金融帳號"
+        });
+      }
+    }
+
+    // (b) 銀行/行庫名稱引導（交易明細，如「合庫,李大山,123456789」或「第一銀行,98765432100」）
+    const bankContextRegex = new RegExp(`(?:${_BANK_ALT})[,，\\s\\t:：]+(?:[\\u4e00-\\u9fa5]{2,4}[,，\\s\\t:：]+)?(?<!\\d)(\\d{8,16})(?!\\d)`, "g");
+    while ((m = bankContextRegex.exec(text)) !== null) {
+      const rawStr = m[1];
+      const offset = m[0].lastIndexOf(rawStr);
+      const start = m.index + offset;
+      const end = start + rawStr.length;
+      if (!spans.some(s => s.start <= start && end <= s.end)) {
+        spans.push({
+          start: start,
+          end: end,
           text: rawStr,
           type: "金融帳號"
         });
@@ -840,6 +901,32 @@ class DeidEngine {
           text: matchStr.trim(),
           type: "出生年月日"
         });
+      } else if (this.maskAllDates) {
+        spans.push({
+          start: m.index,
+          end: m.index + matchStr.length,
+          text: matchStr.trim(),
+          type: "出生年月日"
+        });
+      }
+    }
+
+    const numDateRegex = /(?<![0-9A-Za-z])((?:1[0-9]{2}|20[0-9]{2}|[0-9]{2})[./-](?:0?[1-9]|1[0-2])[./-](?:0?[1-9]|[12][0-9]|3[01]))(?![0-9A-Za-z])/g;
+    while ((m = numDateRegex.exec(text)) !== null) {
+      const rawDate = m[1];
+      const prevContext = text.substring(Math.max(0, m.index - 10), m.index);
+      const isBirth = ['出生', '生日', '生於'].some(kw => prevContext.includes(kw));
+      if (isBirth || this.maskAllDates) {
+        const start = m.index;
+        const end = m.index + rawDate.length;
+        if (!spans.some(s => s.start <= start && end <= s.end)) {
+          spans.push({
+            start: start,
+            end: end,
+            text: rawDate,
+            type: "出生年月日"
+          });
+        }
       }
     }
 
@@ -882,12 +969,17 @@ class DeidEngine {
     const spans = this.detectEntities(text);
     const stats = {};
 
+    // 先依出現順序 (由前往後) 生成 Token，確保編號符合自然閱讀順序
+    const tokens = spans.map(span => mappingStore.getOrCreateToken(span.text, span.type, span.role));
+    for (const span of spans) {
+      stats[span.type] = (stats[span.type] || 0) + 1;
+    }
+
     let modified = text;
-    // 由後往前替換
+    // 由後往前替換避免索引位移
     for (let i = spans.length - 1; i >= 0; i--) {
       const span = spans[i];
-      const token = mappingStore.getOrCreateToken(span.text, span.type, span.role);
-      stats[span.type] = (stats[span.type] || 0) + 1;
+      const token = tokens[i];
       modified = modified.substring(0, span.start) + token + modified.substring(span.end);
     }
 
