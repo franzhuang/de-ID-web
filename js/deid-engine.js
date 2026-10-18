@@ -333,7 +333,7 @@ const NON_GIVEN_CHARS = new Set(Array.from("於之以及與或而不並是有為
 const CUE_PREFIXES = [
   "查詢", "詢問", "詢據", "傳喚", "訊問", "約談", "通知", "委託", "交予", "交付予", "指示", "探詢",
   "之子", "之妻", "之夫", "之女", "之父", "之母", "之弟", "之兄", "之姐", "之妹", "之友",
-  "函附", "開立", "會同", "偕同", "轉交", "匯予", "匯款予", "轉帳予", "借予", "借款予", "致贈", "告知",
+  "函附", "開立", "會同", "偕同", "轉交", "匯予", "匯款予", "轉帳予", "借予", "借款予", "致贈", "告知因", "告知",
   "清查", "稽查", "受查", "受詢", "查獲", "查得", "查訪", "對象", "姓名", "當事人姓名", "受查詢人", "被查詢人", "受處分人", "被查人", "受訊人", "查"
 ];
 
@@ -351,7 +351,13 @@ const CUE_RE = new RegExp(`(?:${[...CUE_PREFIXES].sort((a, b) => b.length - a.le
 const CHAIN_DELIM_RE = /^[ \t\u3000]*[及與和、暨·・•‧●/／,，][ \t\u3000]*/;
 
 const _PUNCT_CLASS = ",，、。；;：:！？!?（()\\[\\]{}〔〕「」『』“”\"'《》〈〉【】\\s\\r\\n\\t·・•‧●○|｜/／\\\\~～\\-_—";
-const STANDALONE_RE_SRC = `(?:^|[${_PUNCT_CLASS}]|向|至|自|於|與|和|叫|見|由|命|令|委|同|及|找|代|之|依|隨|經|遭|被|因|給|另|請|使|讓|派)(${STANDALONE_NAME_SURNAMES.join("|")})`;
+const STANDALONE_PREFIXES = [
+  "告知因", "告知", "通知", "獲悉", "據悉", "傳聞", "向", "至", "自", "於", "與", "和", "叫", "見", "由",
+  "命", "令", "委", "同", "及", "找", "代", "之", "依", "隨", "經", "遭", "被", "因", "給", "另", "請",
+  "使", "讓", "派", "借", "欠", "問", "詢", "連同", "偕同", "陪同"
+];
+const _STANDALONE_PREFIX_ALT = [...STANDALONE_PREFIXES].sort((a, b) => b.length - a.length).join("|");
+const STANDALONE_RE_SRC = `(?:^|[${_PUNCT_CLASS}]|(?:${_STANDALONE_PREFIX_ALT}))(${STANDALONE_NAME_SURNAMES.join("|")})`;
 const TITLE_SUFFIX_SRC = `(${Array.from(COMMON_SURNAMES).sort((a, b) => b.length - a.length).join("|")})([\\u4e00-\\u9fa5]{1,2})(${TITLES.join("|")})`;
 
 const TAIWAN_BANKS = [
@@ -581,7 +587,7 @@ function extractPersonSpans(text) {
     }
   }
 
-  // 6. 獨立單姓無前綴姓名
+  // 6. 獨立單姓無前綴或常規前導詞姓名
   const standaloneRe = new RegExp(STANDALONE_RE_SRC, "g");
   while ((m = standaloneRe.exec(text)) !== null) {
     const si = m.index + m[0].length - m[1].length;
@@ -593,7 +599,17 @@ function extractPersonSpans(text) {
         if (!CJK_ALL.test(cand)) continue;
         if (INVALID_NAME_ENDINGS.has(cand[cand.length - 1]) || LEGAL_EXCLUDE_WORDS.has(cand) || NON_NAME_WORDS.has(cand)) continue;
         const nc = ei < n ? text[ei] : "";
-        if (!nc || FOLLOW_CHARS.has(nc) || /\s/.test(nc)) { matched = cand; break; }
+        if (length === 3) {
+          if (!nc || /\s/.test(nc) || FOLLOW_CHARS.has(nc) || !COMMON_SURNAMES.has(nc)) {
+            matched = cand;
+            break;
+          }
+        } else if (length === 2) {
+          if (!nc || /\s/.test(nc) || FOLLOW_CHARS.has(nc)) {
+            matched = cand;
+            break;
+          }
+        }
       }
     }
     if (matched) add(si, si + matched.length, matched, "自然人", "關係人");
@@ -622,7 +638,7 @@ class DeidEngine {
     this.maskAllDates = options.maskAllDates || false;
   }
 
-  detectEntities(text) {
+  detectEntities(text, extraSpans = null, externalEntities = null) {
     const spans = [];
 
     // 1. 身分證號 (Rule 01)
@@ -933,7 +949,16 @@ class DeidEngine {
     // 7. 自然人與法律訴訟關係人（法律語義邊界演算法，詳見 extractPersonSpans）
     for (const ps of extractPersonSpans(text)) spans.push(ps);
 
-    // 8. 衝突消解 (Non-overlapping Span Selection via Uint8Array mask)
+    // 8. 外部注入 / LLM 結構化實體（確定性防幻覺驗證）
+    if (extraSpans && Array.isArray(extraSpans)) {
+      for (const es of extraSpans) spans.push(es);
+    }
+    if (externalEntities) {
+      const verified = DeidEngine.verifyAndLocateEntities(text, externalEntities);
+      for (const vs of verified) spans.push(vs);
+    }
+
+    // 9. 衝突消解 (Non-overlapping Span Selection via Uint8Array mask)
     spans.sort((a, b) => {
       const pA = ENTITY_PRIORITY[a.type] || 0;
       const pB = ENTITY_PRIORITY[b.type] || 0;
@@ -964,9 +989,88 @@ class DeidEngine {
     return selected;
   }
 
-  maskText(text, mappingStore = null) {
+  /**
+   * 確定性防幻覺實體驗證與定位函數：
+   * 嚴格以原始文本 text 為唯一真理，比對外部/模型抽取的 JSON 實體清單。
+   * 若實體字串在原文中完全不存在（模型幻覺虛構），100% 拋棄！
+   * 若存在，精確定位 offset (start, end) 並生成 Span。
+   */
+  static verifyAndLocateEntities(text, externalEntities) {
+    if (!externalEntities) return [];
+    let data = externalEntities;
+    if (typeof data === "string") {
+      let clean = data.trim();
+      if (clean.startsWith("```")) {
+        clean = clean.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+      }
+      try {
+        data = JSON.parse(clean);
+      } catch (e) {
+        const m = clean.match(/\{[\s\S]*\}/);
+        if (m) {
+          try { data = JSON.parse(m[0]); } catch (_) { return []; }
+        } else {
+          return [];
+        }
+      }
+    }
+
+    const typeAliases = {
+      "PERSON": "自然人", "自然人": "自然人", "姓名": "自然人", "人名": "自然人", "NAME": "自然人",
+      "ROLE_PERSON": "訴訟關係人", "訴訟關係人": "訴訟關係人", "關係人": "訴訟關係人", "當事人": "訴訟關係人",
+      "ID_CARD": "身分證號", "身分證": "身分證號", "身分證號": "身分證號",
+      "RESIDENCE_PERMIT": "居留證號", "居留證": "居留證號",
+      "PASSPORT": "護照號", "護照": "護照號",
+      "HEALTH_CARD": "健保卡號", "健保卡": "健保卡號",
+      "PHONE": "電話", "電話": "電話", "市話": "電話",
+      "MOBILE": "手機", "手機": "手機", "行動電話": "手機",
+      "EMAIL": "電子郵件", "電子郵件": "電子郵件",
+      "BANK_ACCOUNT": "金融帳號", "金融帳號": "金融帳號", "帳號": "金融帳號",
+      "CREDIT_CARD": "信用卡號", "信用卡": "信用卡號",
+      "TAX_ID": "統一編號", "統一編號": "統一編號", "統編": "統一編號",
+      "ADDRESS": "地址", "地址": "地址",
+      "LAND_NUMBER": "地號建號", "地號": "地號建號",
+      "LICENSE_PLATE": "車牌號", "車牌": "車牌號",
+      "HOSPITAL": "醫療機構", "醫療機構": "醫療機構", "醫院": "醫療機構",
+      "MEDICAL_RECORD": "病歷號", "病歷號": "病歷號",
+      "BIRTH_DATE": "出生年月日", "出生年月日": "出生年月日"
+    };
+
+    const validSpans = [];
+    if (Array.isArray(data)) {
+      data = { "自然人": data };
+    }
+
+    if (typeof data === "object" && data !== null) {
+      for (const [key, items] of Object.entries(data)) {
+        const type = typeAliases[key.toUpperCase()] || typeAliases[key] || "自然人";
+        const list = Array.isArray(items) ? items : [items];
+        for (const rawItem of new Set(list)) {
+          const item = String(rawItem || "").trim();
+          if (!item) continue;
+          let startPos = 0;
+          while (true) {
+            const idx = text.indexOf(item, startPos);
+            if (idx === -1) break;
+            validSpans.push({
+              start: idx,
+              end: idx + item.length,
+              text: item,
+              type: type,
+              role: null,
+              metadata: { detectedBy: "llm_json_verified" }
+            });
+            startPos = idx + item.length;
+          }
+        }
+      }
+    }
+    return validSpans;
+  }
+
+  maskText(text, mappingStore = null, extraSpans = null, externalEntities = null) {
     if (!mappingStore) mappingStore = new MappingStore();
-    const spans = this.detectEntities(text);
+    const spans = this.detectEntities(text, extraSpans, externalEntities);
     const stats = {};
 
     // 先依出現順序 (由前往後) 生成 Token，確保編號符合自然閱讀順序

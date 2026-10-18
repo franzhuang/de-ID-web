@@ -17,6 +17,18 @@ document.addEventListener('DOMContentLoaded', () => {
   const mappingCount = document.getElementById('mappingCount');
   const optKeepCity = document.getElementById('optKeepCity');
 
+  // AI 輔助抽取相關元件
+  const chkUseLLM = document.getElementById('chkUseLLM');
+  const llmConfigPanel = document.getElementById('llmConfigPanel');
+  const inputLLMUrl = document.getElementById('inputLLMUrl');
+  const inputLLMModel = document.getElementById('inputLLMModel');
+
+  if (chkUseLLM && llmConfigPanel) {
+    chkUseLLM.addEventListener('change', () => {
+      llmConfigPanel.style.display = chkUseLLM.checked ? 'flex' : 'none';
+    });
+  }
+
   // 還原模式相關
   const tabMask = document.getElementById('tabMask');
   const tabRestore = document.getElementById('tabRestore');
@@ -29,22 +41,88 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnCopyRestored = document.getElementById('btnCopyRestored');
   let restoreStore = null;
 
+  async function callLocalLLMForEntities(text, apiUrl, model) {
+    const cleanUrl = apiUrl.replace(/\/+$/, "");
+    const systemPrompt = `你是一個精確的個資實體抽取助手。請僅從給定的原始文字中，找出所有出現的真實個資實體，並以 JSON 格式輸出。
+【極嚴格防幻覺限制】：
+1. 嚴禁改寫、推測或虛構任何不在原文中的文字！
+2. 輸出的實體字串必須「一字不差」地存在於原文中！
+3. 只回傳合法的 JSON 物件。
+格式範例：
+{
+  "PERSON": ["姓名A", "姓名B"],
+  "ID_CARD": ["A123456789"],
+  "PHONE": ["0912345678"],
+  "BANK_ACCOUNT": ["123456789"]
+}`;
+
+    let endpoint = `${cleanUrl}/api/generate`;
+    let body;
+    if (cleanUrl.includes("/v1") || cleanUrl.endsWith(":8000") || cleanUrl.endsWith(":8080")) {
+      endpoint = cleanUrl.endsWith("/chat/completions") ? cleanUrl : `${cleanUrl}/chat/completions`;
+      body = JSON.stringify({
+        model: model,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: `請抽取以下文字中的個資實體並回傳 JSON：\n\n${text}` }
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0
+      });
+    } else {
+      body = JSON.stringify({
+        model: model,
+        prompt: `${systemPrompt}\n\n請抽取以下文字中的個資實體並以 JSON 輸出：\n\n${text}`,
+        format: "json",
+        stream: false,
+        options: { temperature: 0 }
+      });
+    }
+
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: body
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    const data = await res.json();
+    return data.response || (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || JSON.stringify(data);
+  }
+
   // 去識別化處理
-  function handleProcess() {
+  async function handleProcess() {
     const text = rawInput.value;
     if (!text.trim()) {
       showToast('請先輸入或貼上書狀文字！');
       return;
     }
 
+    btnProcess.disabled = true;
+    const origBtnText = btnProcess.textContent;
+
+    let externalEntities = null;
+    if (chkUseLLM && chkUseLLM.checked) {
+      try {
+        btnProcess.textContent = '🤖 本地 AI 抽取中...';
+        const rawJson = await callLocalLLMForEntities(text, inputLLMUrl.value, inputLLMModel.value);
+        externalEntities = rawJson;
+        showToast('AI 實體抽取完成，已由確定性引擎進行防幻覺替換！');
+      } catch (err) {
+        console.warn('AI 連線失敗，自動退回純規則引擎：', err);
+        showToast('無法連線至本地 AI (' + err.message + ')，已安全退回純規則引擎處理');
+      }
+    }
+
     engine.keepCityPrefix = optKeepCity.checked;
     currentStore = new MappingStore();
 
-    const result = engine.maskText(text, currentStore);
+    const result = engine.maskText(text, currentStore, null, externalEntities);
     maskedOutput.value = result.maskedText;
 
     renderStats(result.stats);
     renderMappingTable(currentStore);
+    btnProcess.disabled = false;
+    btnProcess.textContent = origBtnText;
     showToast('去識別化完成！');
   }
 

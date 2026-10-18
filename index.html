@@ -58,6 +58,29 @@
         </div>
       </div>
 
+      <!-- 控制按鈕列與 AI 增強選配 -->
+      <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:8px; padding:12px 16px; margin-bottom:16px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+          <label style="font-size:0.9rem; font-weight:600; display:flex; align-items:center; gap:8px; cursor:pointer;">
+            <input type="checkbox" id="chkUseLLM"> 🤖 啟用本地 AI 輔助抽取 (防幻覺架構：僅回傳實體 JSON，由確定性引擎進行替換)
+          </label>
+          <span style="font-size:0.8rem; color:var(--text-muted);">支援本地 Ollama / LM Studio 等端點</span>
+        </div>
+        <div id="llmConfigPanel" style="display:none; margin-top:10px; padding-top:10px; border-top:1px dashed var(--border); font-size:0.85rem; display:none; gap:16px; flex-wrap:wrap;">
+          <div style="display:flex; align-items:center; gap:6px;">
+            <label for="inputLLMUrl">API 端點：</label>
+            <input type="text" id="inputLLMUrl" value="http://localhost:11434" style="padding:4px 8px; border:1px solid var(--border); border-radius:4px; font-size:0.85rem; width:220px;">
+          </div>
+          <div style="display:flex; align-items:center; gap:6px;">
+            <label for="inputLLMModel">模型名稱：</label>
+            <input type="text" id="inputLLMModel" value="qwen2.5:7b" style="padding:4px 8px; border:1px solid var(--border); border-radius:4px; font-size:0.85rem; width:140px;">
+          </div>
+          <div style="color:var(--text-muted); font-size:0.8rem; flex-basis:100%;">
+            🔒 安全防幻覺保證：AI 模型僅產出抽取實體之 JSON，若字串不存在於原文將直接被拋棄，絕無竄改或改寫原文之可能。
+          </div>
+        </div>
+      </div>
+
       <!-- 控制按鈕列 -->
       <div class="controls-bar">
         <button class="btn btn-primary" id="btnProcess">⚡ 立即執行去識別化</button>
