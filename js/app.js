@@ -17,15 +17,15 @@ document.addEventListener('DOMContentLoaded', () => {
   const mappingCount = document.getElementById('mappingCount');
   const optKeepCity = document.getElementById('optKeepCity');
 
-  // AI 輔助抽取相關元件
-  const chkUseLLM = document.getElementById('chkUseLLM');
-  const llmConfigPanel = document.getElementById('llmConfigPanel');
-  const inputLLMUrl = document.getElementById('inputLLMUrl');
-  const inputLLMModel = document.getElementById('inputLLMModel');
+  // 本機端點輔助抽取相關元件
+  const chkUseEndpoint = document.getElementById('chkUseEndpoint');
+  const endpointConfigPanel = document.getElementById('endpointConfigPanel');
+  const inputEndpointUrl = document.getElementById('inputEndpointUrl');
+  const inputEndpointModel = document.getElementById('inputEndpointModel');
 
-  if (chkUseLLM && llmConfigPanel) {
-    chkUseLLM.addEventListener('change', () => {
-      llmConfigPanel.style.display = chkUseLLM.checked ? 'flex' : 'none';
+  if (chkUseEndpoint && endpointConfigPanel) {
+    chkUseEndpoint.addEventListener('change', () => {
+      endpointConfigPanel.style.display = chkUseEndpoint.checked ? 'flex' : 'none';
     });
   }
 
@@ -41,10 +41,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnCopyRestored = document.getElementById('btnCopyRestored');
   let restoreStore = null;
 
-  async function callLocalLLMForEntities(text, apiUrl, model) {
+  async function callLocalEndpointForEntities(text, apiUrl, model) {
     const cleanUrl = apiUrl.replace(/\/+$/, "");
     const systemPrompt = `你是一個精確的個資實體抽取助手。請僅從給定的原始文字中，找出所有出現的真實個資實體，並以 JSON 格式輸出。
-【極嚴格防幻覺限制】：
+【抽取限制】：
 1. 嚴禁改寫、推測或虛構任何不在原文中的文字！
 2. 輸出的實體字串必須「一字不差」地存在於原文中！
 3. 只回傳合法的 JSON 物件。
@@ -101,15 +101,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const origBtnText = btnProcess.textContent;
 
     let externalEntities = null;
-    if (chkUseLLM && chkUseLLM.checked) {
+    if (chkUseEndpoint && chkUseEndpoint.checked) {
       try {
-        btnProcess.textContent = '🤖 本地 AI 抽取中...';
-        const rawJson = await callLocalLLMForEntities(text, inputLLMUrl.value, inputLLMModel.value);
+        btnProcess.textContent = '⚙️ 處理中...';
+        const rawJson = await callLocalEndpointForEntities(text, inputEndpointUrl.value, inputEndpointModel.value);
         externalEntities = rawJson;
-        showToast('AI 實體抽取完成，已由確定性引擎進行防幻覺替換！');
+        showToast('實體抽取完成！');
       } catch (err) {
-        console.warn('AI 連線失敗，自動退回純規則引擎：', err);
-        showToast('無法連線至本地 AI (' + err.message + ')，已安全退回純規則引擎處理');
+        console.warn('端點連線失敗，改以純規則引擎處理：', err);
+        showToast('無法連線至端點 (' + err.message + ')，改以純規則引擎處理');
       }
     }
 

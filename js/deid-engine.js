@@ -949,7 +949,7 @@ class DeidEngine {
     // 7. 自然人與法律訴訟關係人（法律語義邊界演算法，詳見 extractPersonSpans）
     for (const ps of extractPersonSpans(text)) spans.push(ps);
 
-    // 8. 外部注入 / LLM 結構化實體（確定性防幻覺驗證）
+    // 8. 外部注入結構化實體
     if (extraSpans && Array.isArray(extraSpans)) {
       for (const es of extraSpans) spans.push(es);
     }
@@ -990,9 +990,9 @@ class DeidEngine {
   }
 
   /**
-   * 確定性防幻覺實體驗證與定位函數：
-   * 嚴格以原始文本 text 為唯一真理，比對外部/模型抽取的 JSON 實體清單。
-   * 若實體字串在原文中完全不存在（模型幻覺虛構），100% 拋棄！
+   * 結構化實體驗證與定位函數：
+   * 以原始文本 text 為準，比對外部抽取的 JSON 實體清單。
+   * 若實體字串在原文中完全不存在，自動忽略。
    * 若存在，精確定位 offset (start, end) 並生成 Span。
    */
   static verifyAndLocateEntities(text, externalEntities) {
@@ -1058,7 +1058,7 @@ class DeidEngine {
               text: item,
               type: type,
               role: null,
-              metadata: { detectedBy: "llm_json_verified" }
+              metadata: { detectedBy: "external_json_verified" }
             });
             startPos = idx + item.length;
           }
