@@ -426,6 +426,9 @@ function buildImmuneMask(text) {
     }
   };
   for (const term of IMMUNE_TERMS) markAll(term);
+  for (const role of LEGAL_ROLES) {
+    if (role.length >= 3) markAll(role);
+  }
   const aliases = new Set();
   for (const m of text.matchAll(ALIAS_RE)) aliases.add(m[1].trim());
   for (const alias of aliases) {
@@ -638,7 +641,7 @@ class DeidEngine {
     this.maskAllDates = options.maskAllDates || false;
   }
 
-  detectEntities(text, extraSpans = null, externalEntities = null) {
+  detectEntities(text, extraSpans = null, externalEntities = null, mappingStore = null) {
     const spans = [];
 
     // 1. 身分證號 (Rule 01)
@@ -958,6 +961,29 @@ class DeidEngine {
       for (const vs of verified) spans.push(vs);
     }
 
+    // 8b. 既有實體跨檔/跨段落自動傳播（來自共用 MappingStore）
+    if (mappingStore && Array.isArray(mappingStore.entities)) {
+      for (const ent of mappingStore.entities) {
+        const orig = (ent.original || "").trim();
+        if (orig.length >= 2) {
+          let sPos = 0;
+          while (true) {
+            const idx = text.indexOf(orig, sPos);
+            if (idx === -1) break;
+            spans.push({
+              start: idx,
+              end: idx + orig.length,
+              text: orig,
+              type: ent.type || "自然人",
+              role: ent.role || null,
+              metadata: { detectedBy: "cross_file_known_propagation" }
+            });
+            sPos = idx + orig.length;
+          }
+        }
+      }
+    }
+
     // 9. 衝突消解 (Non-overlapping Span Selection via Uint8Array mask)
     spans.sort((a, b) => {
       const pA = ENTITY_PRIORITY[a.type] || 0;
@@ -1070,7 +1096,7 @@ class DeidEngine {
 
   maskText(text, mappingStore = null, extraSpans = null, externalEntities = null) {
     if (!mappingStore) mappingStore = new MappingStore();
-    const spans = this.detectEntities(text, extraSpans, externalEntities);
+    const spans = this.detectEntities(text, extraSpans, externalEntities, mappingStore);
     const stats = {};
 
     // 先依出現順序 (由前往後) 生成 Token，確保編號符合自然閱讀順序
